@@ -8,15 +8,14 @@ faces:
 - a **CLI** for reading fields and applying batch edits across many files at
   once.
 
-Both share one editing engine, built on the
-[`raitucarp/epub`](https://github.com/raitucarp/epub) library for saving. Reads
-extract only the package document from the EPUB, so scanning a shelf never
-decompresses the books' images or chapters. Reads are tolerant and lossless; a
-save re-marshals the package document, changing only the fields you touch while
-preserving Calibre `<meta>` entries, EPUB 3 refinements of untouched metadata,
-cover references and the rest of the publication. (Author
-`opf:role`/`opf:file-as` attributes are not modelled, so changing a creator,
-title or tag list drops that element's refinements.)
+Both share one editing engine of shelf's own. Reads extract only the package
+document from the EPUB, so scanning a shelf never decompresses the books' images
+or chapters. A save patches just the changed metadata elements in the package
+document and copies every other archive entry in compressed form: untouched
+metadata keeps its original bytes (including author `opf:role`/`opf:file-as`
+attributes, EPUB 3 refinements, comments and ordering), and chapters, images and
+the cover are never re-compressed. A save is minimal: only replacing a creator,
+title or tag list drops that element's refinements.
 
 ## Install
 
@@ -394,10 +393,11 @@ a dash.
 
 ### Repair
 
-Older shelf saves could rewrite Dublin Core metadata using a default XML
-namespace instead of the conventional `dc:` prefix. Most readers still parse
-that as XML, but readers that look metadata up by qualified name (for example
-`getElementsByTagName("dc:title")`) find nothing. `repair` rewrites the package
+`repair` exists for books damaged by older shelf releases. Those saves could
+rewrite Dublin Core metadata using a default XML namespace instead of the
+conventional `dc:` prefix. Most readers still parse that as XML, but readers
+that look metadata up by qualified name (for example
+`getElementsByTagName("dc:title")`) find nothing. Repair rewrites the package
 document with the standard prefixes:
 
 ```sh
@@ -406,16 +406,11 @@ shelf repair -n -r ~/books     # preview a whole shelf
 ```
 
 Metadata values are not changed, and files that already use `dc:` prefixes are
-left untouched. It also repairs the mismatched `</dc:meta>` closing tags
-written by older shelf versions.
-
-Some books contain the same metadata key in both `<meta name="...">` and
-`<meta property="...">` forms. shelf's editor cannot open those files, so they
-are reported as unreadable and `repair` normalizes them: on EPUB 3 the legacy
-`name`/`content` form becomes a `property` meta with the same value, while
-EPUB 2 and Calibre keys keep the `name` form and drop the duplicate `property`
-entry. The book can then be read and edited normally. `-n` previews and `-r`
-recurses.
+left untouched. It also repairs the mismatched `</dc:meta>` closing tags and
+duplicate name/property meta keys written by older shelf versions. Current
+writes are already clean, and reading tolerates duplicate keys, so repair is a
+one-time migration rather than part of the normal edit flow. `-n` previews and
+`-r` recurses.
 
 ### Check
 
@@ -444,14 +439,14 @@ shelf man --dir man/         # pages for every command
 
 ## Design notes
 
-- **Library-backed editing.** `internal/epub` reads metadata directly from the
+- **Minimal in-place editing.** `internal/epub` reads metadata directly from the
   EPUB ZIP, decompressing only `META-INF/container.xml` and the package
-  document. Saves go through the
-  [`raitucarp/epub`](https://github.com/raitucarp/epub) editor before being
-  written back atomically (the original file mode is preserved, and a failed
-  write can never truncate the book). Package documents are post-processed to
-  restore the conventional `dc:` namespace prefixes and to normalize colliding
-  `meta` name/property keys.
+  document. A save edits the metadata block of the package document in place
+  and copies every other entry in compressed form; the file is replaced
+  atomically (the original file mode is preserved, and a failed write can never
+  truncate the book). Untouched elements keep their exact bytes, so namespace
+  prefixes, unknown attributes, refinements and comments survive. The archive
+  is never fully decompressed into memory.
 - **Calibre and EPUB 3.3 aware.** Series and episode number are written both as
   the Calibre `calibre:series` / `calibre:series_index` `<meta>` entries and, on
   EPUB 3 files, as the standard `belongs-to-collection`, `collection-type` and

@@ -66,7 +66,8 @@ func TestRepairUnreadableBook(t *testing.T) {
 }
 
 // makeCollidingEPUB writes a book whose package document has name/content and
-// property metas sharing a key, which makes the underlying metadata parser panic.
+// property metas sharing a key. Older releases could not read it; the current
+// reader tolerates the shape, so no repair is needed.
 func makeCollidingEPUB(t *testing.T, dir, name string) string {
 	t.Helper()
 	opf := strings.Replace(testOPF, "</metadata>",
@@ -75,12 +76,12 @@ func makeCollidingEPUB(t *testing.T, dir, name string) string {
 	return makeEPUBWithOPF(t, dir, name, opf)
 }
 
-func TestRepairKeyFixesMetaCollisions(t *testing.T) {
+func TestRepairKeyIgnoresMetaCollisions(t *testing.T) {
 	dir := t.TempDir()
 	path := makeCollidingEPUB(t, dir, "colliding.epub")
 	e := library.LoadOne(path)
-	if e.Err == nil {
-		t.Fatal("fixture was expected to be unreadable")
+	if e.Err != nil {
+		t.Fatalf("colliding metas should be readable: %v", e.Err)
 	}
 
 	m := newModel(dir, []library.Entry{e})
@@ -89,23 +90,12 @@ func TestRepairKeyFixesMetaCollisions(t *testing.T) {
 	m = next.(model)
 	m.pane = paneDetail
 
-	if !m.selectedUnreadable() {
-		t.Fatal("selected book should be unreadable")
-	}
 	m, cmd := step(t, m, keyMsg("r"))
-	if cmd == nil {
-		t.Fatal("r did not schedule the repair")
+	if cmd != nil {
+		t.Error("r scheduled a repair for a readable book")
 	}
-	m = drain(t, m, cmd)
-
-	if m.entries[0].Err != nil {
-		t.Fatalf("book is still unreadable after repair: %v", m.entries[0].Err)
-	}
-	if m.entries[0].Metadata.Title != "The Left Hand of Darkness" {
-		t.Errorf("title after repair = %q", m.entries[0].Metadata.Title)
-	}
-	if m.status != "repaired" {
-		t.Errorf("status = %q", m.status)
+	if m.repairing {
+		t.Error("repairing flag set for a readable book")
 	}
 }
 

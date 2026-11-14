@@ -1,11 +1,11 @@
 // Package epub reads and edits the Dublin Core metadata of an EPUB file.
 //
 // Reading extracts only the OCF container and the package document from the
-// ZIP, so it does not pay for the book's images or chapters. Saving goes
-// through the github.com/raitucarp/epub library's Editor and rewrites the
-// publication; as a result the whole package document is re-marshalled rather
-// than patched byte for byte, and author role/file-as attributes are not
-// preserved.
+// ZIP, so it does not pay for the book's images or chapters. Saving patches the
+// metadata block of the package document in place and copies every other
+// archive entry in compressed form: fields that were not edited keep their
+// original bytes, including author role/file-as attributes, refinements,
+// namespace prefixes, comments and ordering.
 package epub
 
 import "strings"
@@ -14,8 +14,9 @@ import "strings"
 const Mimetype = "application/epub+zip"
 
 // Creator is a Dublin Core creator (author, editor, illustrator, ...). Only the
-// display name is modelled: the underlying library does not round-trip the
-// opf:role / opf:file-as attributes, so they are intentionally dropped.
+// display name is modelled. Elements of creators that are not edited keep their
+// opf:role / opf:file-as attributes; replacing a creator writes a bare name and
+// drops that element's refinements.
 type Creator struct {
 	Name string
 }

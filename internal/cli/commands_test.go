@@ -1,38 +1,77 @@
 package cli
 
 import (
+	"archive/zip"
 	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	raitepub "github.com/raitucarp/epub"
-
 	"github.com/gollyhatch/shelf/internal/epub"
 	"github.com/gollyhatch/shelf/internal/library"
 )
+
+// cliFixtureOPF is a legacy package document: Dublin Core elements carry a
+// default xmlns instead of the dc: prefix, so the repair command has something
+// to fix.
+const cliFixtureOPF = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
+  <metadata xmlns="http://www.idpf.org/2007/opf">
+    <identifier xmlns="http://purl.org/dc/elements/1.1/" id="pub-id">urn:isbn:1</identifier>
+    <title xmlns="http://purl.org/dc/elements/1.1/" id="title">The Left Hand of Darkness</title>
+    <creator xmlns="http://purl.org/dc/elements/1.1/" id="author">Le Guin, Ursula K.</creator>
+    <language xmlns="http://purl.org/dc/elements/1.1/">en</language>
+    <publisher xmlns="http://purl.org/dc/elements/1.1/">Ace Books</publisher>
+    <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
+  </metadata>
+  <manifest>
+    <item id="chapter-1" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+  </manifest>
+  <spine toc="toc"/>
+</package>`
 
 // makeEPUB writes a small but valid EPUB with a known title and author into
 // dir and returns its path.
 func makeEPUB(t *testing.T, dir string) string {
 	t.Helper()
-	w := raitepub.New("urn:isbn:1")
-	w.Title("The Left Hand of Darkness")
-	w.Author("Le Guin, Ursula K.")
-	w.Languages("en")
-	w.Publisher("Ace Books")
-	w.AddContent("chapter-1.xhtml", []byte(
-		`<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>One</h1></body></html>`))
-	if err := w.TableOfContents("toc", raitepub.TOC{
-		Title: "Contents",
-		Items: []raitepub.TOC{{Title: "One", Href: "chapter-1.xhtml"}},
-	}); err != nil {
-		t.Fatalf("toc: %v", err)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	w, err := zw.CreateHeader(&zip.FileHeader{Name: "mimetype", Method: zip.Store})
+	if err != nil {
+		t.Fatal(err)
 	}
+	if _, err := w.Write([]byte(epub.Mimetype)); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, content string) {
+		t.Helper()
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("META-INF/container.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>`)
+	write("OEBPS/content.opf", cliFixtureOPF)
+	write("OEBPS/chapter-1.xhtml", `<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>One</h1></body></html>`)
+	write("OEBPS/toc.ncx", `<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head></head></ncx>`)
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	path := filepath.Join(dir, "original.epub")
-	if err := w.Write(path); err != nil {
-		t.Fatalf("write fixture: %v", err)
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	return path
 }

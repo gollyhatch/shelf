@@ -7,45 +7,37 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	raitepub "github.com/raitucarp/epub"
-	pkgmeta "github.com/raitucarp/epub/pkg"
 )
 
+// legacyOPF mirrors the package documents older shelf releases wrote: Dublin
+// Core elements carry a default xmlns instead of the conventional dc: prefix.
+const legacyOPF = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="pub-id" version="3.0">
+  <metadata xmlns="http://www.idpf.org/2007/opf">
+    <identifier xmlns="http://purl.org/dc/elements/1.1/" id="pub-id">urn:isbn:1</identifier>
+    <title xmlns="http://purl.org/dc/elements/1.1/" id="title">The Left Hand of Darkness</title>
+    <creator xmlns="http://purl.org/dc/elements/1.1/" id="author">Le Guin, Ursula K.</creator>
+    <language xmlns="http://purl.org/dc/elements/1.1/">en</language>
+    <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
+  </metadata>
+  <manifest/>
+  <spine/>
+</package>`
+
 // makeCollidingEPUB writes a fixture with a name/content meta and a property
-// meta that share a key. The underlying library panics on this combination, so
-// repair has to normalize it before the book can be read or edited again.
+// meta that share a key.
 func makeCollidingEPUB(t *testing.T) string {
 	t.Helper()
-	path := makeEPUB(t)
-	r, err := raitepub.OpenReader(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ed, err := r.Edit()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg := ed.CurrentPackage()
-	pkg.Metadata.Meta = append(pkg.Metadata.Meta,
-		pkgmeta.Meta{Name: "schema:accessMode", Content: "textual"},
-		pkgmeta.Meta{Property: "schema:accessMode", Value: "visual"},
-	)
-	data, err := ed.Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	return makeEPUBWith(t,
+		`<meta name="schema:accessMode" content="textual"/>`+
+			`<meta property="schema:accessMode">visual</meta>`)
 }
 
 // TestRepairRestoresDublinCorePrefixes checks that repair rewrites a package
 // document written with default DC namespaces back to the dc: form, without
 // changing metadata values. It also checks dry runs and idempotence.
 func TestRepairRestoresDublinCorePrefixes(t *testing.T) {
-	path := makeEPUB(t)
+	path := writeEPUB(t, legacyOPF)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -123,16 +115,16 @@ func TestRepairRestoresDublinCorePrefixes(t *testing.T) {
 }
 
 // TestRepairFixesMetaCollisions checks that repair normalizes the colliding
-// name/content and property metas that make the underlying library panic, and
-// that the repaired book can then be read and edited.
+// name/content and property metas. Reading already tolerates the collisions;
+// repair exists to clean up files written by older releases and by other tools.
 func TestRepairFixesMetaCollisions(t *testing.T) {
 	path := makeCollidingEPUB(t)
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadMetadata(path); err == nil {
-		t.Fatal("fixture is readable; it cannot exercise collision repair")
+	if _, err := ReadMetadata(path); err != nil {
+		t.Fatalf("colliding metas should already be readable: %v", err)
 	}
 
 	changed, err := Repair(path, true)

@@ -3,82 +3,136 @@ package epub
 import (
 	"archive/zip"
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	raitepub "github.com/raitucarp/epub"
-	pkgmeta "github.com/raitucarp/epub/pkg"
 )
+
+// fixtureOPF is a package document with the structure shelf manages: prefixed
+// Dublin Core elements, a unique identifier, Calibre-style author/title ids and
+// an EPUB 3 dcterms:modified entry. The comment is a placeholder that tests
+// replace with extra metadata.
+const fixtureOPF = `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" version="3.0" unique-identifier="pub-id">
+  <metadata>
+    <!-- extra -->
+    <dc:identifier id="pub-id">urn:isbn:1</dc:identifier>
+    <dc:title id="title">The Left Hand of Darkness</dc:title>
+    <dc:language>en</dc:language>
+    <dc:creator id="author">Le Guin, Ursula K.</dc:creator>
+    <dc:subject id="sf">Science Fiction</dc:subject>
+    <dc:publisher id="publisher">Ace Books</dc:publisher>
+    <dc:description>A novel about a planet called Winter.</dc:description>
+    <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
+  </metadata>
+  <manifest>
+    <item id="chapter-1" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+  </manifest>
+  <spine toc="toc">
+    <itemref idref="chapter-1"/>
+  </spine>
+</package>`
+
+const fixtureContainer = `<?xml version="1.0" encoding="UTF-8"?>
+<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>`
+
+const fixtureChapter = `<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>One</h1></body></html>`
+
+// writeEPUB builds an EPUB around the given package document and returns its
+// path. The mimetype entry is written first and stored, as OCF requires.
+func writeEPUB(t *testing.T, opf string) string {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	write := func(name string, content string) {
+		t.Helper()
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	w, err := zw.CreateHeader(&zip.FileHeader{Name: "mimetype", Method: zip.Store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(Mimetype)); err != nil {
+		t.Fatal(err)
+	}
+	write("META-INF/container.xml", fixtureContainer)
+	write("OEBPS/content.opf", opf)
+	write("OEBPS/chapter-1.xhtml", fixtureChapter)
+	write("OEBPS/toc.ncx", `<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head></head><docTitle><text>Book</text></docTitle></ncx>`)
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "book.epub")
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 // makeEPUB writes a small but valid EPUB and returns its path.
 func makeEPUB(t *testing.T) string {
 	t.Helper()
-	w := raitepub.New("urn:isbn:1")
-	w.Title("The Left Hand of Darkness")
-	w.Author("Le Guin, Ursula K.")
-	w.Languages("en")
-	w.Subject("sf", "Science Fiction")
-	w.Publisher("Ace Books")
-	w.Description("A novel about a planet called Winter.")
-	w.AddContent("chapter-1.xhtml", []byte(
-		`<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>One</h1></body></html>`))
-	if err := w.TableOfContents("toc", raitepub.TOC{
-		Title: "Contents",
-		Items: []raitepub.TOC{{Title: "One", Href: "chapter-1.xhtml"}},
-	}); err != nil {
-		t.Fatalf("toc: %v", err)
-	}
+	return writeEPUB(t, strings.Replace(fixtureOPF, "<!-- extra -->", "", 1))
+}
 
-	path := filepath.Join(t.TempDir(), "book.epub")
-	if err := w.Write(path); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-	return path
+// makeEPUBWith writes the fixture with extra metadata entries in place of the
+// fixture's placeholder comment.
+func makeEPUBWith(t *testing.T, extra string) string {
+	t.Helper()
+	return writeEPUB(t, strings.Replace(fixtureOPF, "<!-- extra -->", extra, 1))
 }
 
 // makeEPUB2 downgrades the fixture's package document to EPUB 2 and gives the
 // NCX a dtb:uid, as legacy publications have.
 func makeEPUB2(t *testing.T) string {
 	t.Helper()
-	path := makeEPUB(t)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	opf := strings.Replace(fixtureOPF, `version="3.0"`, `version="2.0"`, 1)
+	opf = strings.Replace(opf, "<!-- extra -->", "", 1)
 
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	for _, f := range zr.File {
-		content, err := readZipFile(f)
+	write := func(name, content string) {
+		t.Helper()
+		w, err := zw.Create(name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		switch {
-		case strings.HasSuffix(f.Name, ".opf"):
-			content = bytes.Replace(content, []byte(`version="3.0"`), []byte(`version="2.0"`), 1)
-		case strings.HasSuffix(f.Name, ".ncx"):
-			content = bytes.Replace(content, []byte(`<head></head>`),
-				[]byte(`<head><meta name="dtb:uid" content="urn:isbn:1"/></head>`), 1)
-		}
-		hdr := &zip.FileHeader{Name: f.Name, Method: f.Method, Modified: f.Modified}
-		hdr.SetMode(f.Mode())
-		w, err := zw.CreateHeader(hdr)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := w.Write(content); err != nil {
+		if _, err := w.Write([]byte(content)); err != nil {
 			t.Fatal(err)
 		}
 	}
+
+	w, err := zw.CreateHeader(&zip.FileHeader{Name: "mimetype", Method: zip.Store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(Mimetype)); err != nil {
+		t.Fatal(err)
+	}
+	write("META-INF/container.xml", fixtureContainer)
+	write("OEBPS/content.opf", opf)
+	write("OEBPS/chapter-1.xhtml", fixtureChapter)
+	write("OEBPS/toc.ncx", `<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="urn:isbn:1"/></head><docTitle><text>Book</text></docTitle></ncx>`)
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}
+
+	path := filepath.Join(t.TempDir(), "book.epub")
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -138,9 +192,9 @@ func TestReadMetadata(t *testing.T) {
 	}
 }
 
-// TestReadMetadataIgnoresUnrelatedArchiveDamage checks that the lightweight
-// reader only touches the entries it needs. Harm to another entry, which stops
-// the dependency's full-container reader, must not affect metadata loading.
+// TestReadMetadataIgnoresUnrelatedArchiveDamage checks that the reader only
+// touches the entries it needs. Harm to another entry must not affect metadata
+// loading.
 func TestReadMetadataIgnoresUnrelatedArchiveDamage(t *testing.T) {
 	path := makeEPUB(t)
 	data, err := os.ReadFile(path)
@@ -172,16 +226,13 @@ func TestReadMetadataIgnoresUnrelatedArchiveDamage(t *testing.T) {
 
 	corrupted := append([]byte(nil), data...)
 	pos := int(offset) + int(target.CompressedSize64)/2
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		corrupted[pos+i] ^= 0xff
 	}
 	if err := os.WriteFile(path, corrupted, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := raitepub.OpenReader(path); err == nil {
-		t.Fatal("damage did not break the full-container reader")
-	}
 	m, err := ReadMetadata(path)
 	if err != nil {
 		t.Fatalf("metadata read touched the damaged entry: %v", err)
@@ -411,11 +462,137 @@ func TestPermissionPreserved(t *testing.T) {
 	}
 }
 
+// TestSaveKeepsOtherEntriesVerbatim checks that a save only rewrites the
+// package document: every other entry keeps its compressed bytes, and the
+// package document keeps everything outside the metadata block.
+func TestSaveKeepsOtherEntriesVerbatim(t *testing.T) {
+	path := makeEPUB(t)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	compressed := make(map[string][]byte)
+	zr, err := zip.NewReader(bytes.NewReader(before), int64(len(before)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range zr.File {
+		rc, err := f.OpenRaw()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if compressed[f.Name], err = io.ReadAll(rc); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	beforeOPF := zipEntry(t, path, ".opf")
+
+	if err := Update(path, func(p *Package) error {
+		return p.Set(FieldPublisher, "Orbit")
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err = zip.NewReader(bytes.NewReader(after), int64(len(after)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range zr.File {
+		want, ok := compressed[f.Name]
+		if !ok {
+			t.Fatalf("%s appeared after the save", f.Name)
+		}
+		rc, err := f.OpenRaw()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := io.ReadAll(rc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.Name != "OEBPS/content.opf" && !bytes.Equal(got, want) {
+			t.Errorf("%s was rewritten", f.Name)
+		}
+	}
+
+	afterOPF := zipEntry(t, path, ".opf")
+	head := func(b []byte) []byte {
+		i := bytes.Index(b, []byte("<metadata"))
+		if i < 0 {
+			t.Fatal("no <metadata>")
+		}
+		return b[:i]
+	}
+	if !bytes.Equal(head(beforeOPF), head(afterOPF)) {
+		t.Error("the package document before <metadata> changed")
+	}
+	tail := func(b []byte) []byte {
+		i := bytes.Index(b, []byte("</metadata>"))
+		if i < 0 {
+			t.Fatal("no </metadata>")
+		}
+		return b[i:]
+	}
+	if !bytes.Equal(tail(beforeOPF), tail(afterOPF)) {
+		t.Error("the package document after </metadata> changed")
+	}
+	if !bytes.Contains(afterOPF, []byte("<dc:publisher>Orbit</dc:publisher>")) {
+		t.Errorf("publisher was not written:\n%s", afterOPF)
+	}
+}
+
+// TestCreatorAttributesPreserved checks that creator attributes survive edits
+// that do not touch the creator, and that replacing the creator drops its
+// refinements instead of leaving them dangling.
+func TestCreatorAttributesPreserved(t *testing.T) {
+	opf := strings.Replace(fixtureOPF, `xmlns:dc="http://purl.org/dc/elements/1.1/"`,
+		`xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf"`, 1)
+	opf = strings.Replace(opf, `<dc:creator id="author">`,
+		`<dc:creator id="author" opf:role="aut" opf:file-as="Le Guin, Ursula K.">`, 1)
+	opf = strings.Replace(opf, "<!-- extra -->", `<meta property="file-as" refines="#author">Le Guin, Ursula K.</meta>`, 1)
+	path := writeEPUB(t, opf)
+
+	if err := Update(path, func(p *Package) error {
+		return p.Set(FieldPublisher, "Orbit")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	saved := zipEntry(t, path, ".opf")
+	if !bytes.Contains(saved, []byte(`opf:role="aut" opf:file-as="Le Guin, Ursula K."`)) {
+		t.Errorf("creator attributes were lost:\n%s", saved)
+	}
+	if !bytes.Contains(saved, []byte(`refines="#author"`)) {
+		t.Errorf("creator refinement was lost:\n%s", saved)
+	}
+
+	if err := Update(path, func(p *Package) error {
+		return p.Set(FieldAuthor, "Jane Doe")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	saved = zipEntry(t, path, ".opf")
+	if bytes.Contains(saved, []byte(`opf:role="aut"`)) {
+		t.Errorf("stale creator attributes remain:\n%s", saved)
+	}
+	if bytes.Contains(saved, []byte(`refines="#author"`)) {
+		t.Errorf("stale creator refinement remains:\n%s", saved)
+	}
+	if !bytes.Contains(saved, []byte(">Jane Doe<")) {
+		t.Errorf("new creator missing:\n%s", saved)
+	}
+}
+
 // TestSeriesMetaShape checks that series is stored in both the Calibre metas
 // other tools expect and the standard EPUB 3.3 collection metas.
 func TestSeriesMetaShape(t *testing.T) {
 	path := makeEPUB(t)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if err := Update(path, func(p *Package) error {
 			p.Set(FieldSeries, "Foundation")
 			return p.Set(FieldSeriesIndex, "2")
@@ -423,19 +600,21 @@ func TestSeriesMetaShape(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	r, err := raitepub.OpenReader(path)
+
+	m, err := ReadMetadata(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	md, _ := r.Metadata()["meta"].(map[string]any)
-	if md["calibre:series"] != "Foundation" {
-		t.Errorf("calibre:series = %v", md["calibre:series"])
-	}
-	if md["calibre:series_index"] != "2" {
-		t.Errorf("calibre:series_index = %v", md["calibre:series_index"])
+	if m.Series != "Foundation" || m.SeriesIndex != "2" {
+		t.Errorf("Series = %q, SeriesIndex = %q", m.Series, m.SeriesIndex)
 	}
 
 	opf := zipEntry(t, path, ".opf")
+	for _, want := range []string{`name="calibre:series"`, `name="calibre:series_index"`} {
+		if got := bytes.Count(opf, []byte(want)); got != 1 {
+			t.Errorf("%s appears %d times, want 1:\n%s", want, got, opf)
+		}
+	}
 	if got := bytes.Count(opf, []byte(`property="belongs-to-collection"`)); got != 1 {
 		t.Errorf("belongs-to-collection appears %d times, want 1:\n%s", got, opf)
 	}
@@ -476,95 +655,12 @@ func TestSeriesEPUB2(t *testing.T) {
 	}
 }
 
-// TestCreatorRefinements checks that editing other fields keeps creator IDs
-// and their refinements intact, while replacing a creator drops its stale
-// refinements instead of leaving them dangling.
-func TestCreatorRefinements(t *testing.T) {
-	path := makeEPUB(t)
-	r, err := raitepub.OpenReader(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ed, err := r.Edit()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg := ed.CurrentPackage()
-	for i := range pkg.Metadata.OptionalDC {
-		if pkg.Metadata.OptionalDC[i].XMLName.Local == "creator" {
-			pkg.Metadata.OptionalDC[i].ID = "author_0"
-		}
-	}
-	pkg.Metadata.Meta = append(pkg.Metadata.Meta,
-		pkgmeta.Meta{Property: "file-as", Refines: "#author_0", Value: "Le Guin, Ursula K."})
-	data, err := ed.Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Editing an unrelated field keeps the creator and its refinement.
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldPublisher, "Orbit")
-	}); err != nil {
-		t.Fatal(err)
-	}
-	opf := zipEntry(t, path, ".opf")
-	if !bytes.Contains(opf, []byte(`refines="#author_0"`)) {
-		t.Errorf("creator refinement was lost:\n%s", opf)
-	}
-	// Reading such a file used to panic in the library's Refines helper.
-	m, err := ReadMetadata(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m.AuthorString() != "Le Guin, Ursula K." {
-		t.Errorf("AuthorString = %q", m.AuthorString())
-	}
-
-	// Replacing the creator drops the refinement instead of dangling it.
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldAuthor, "Jane Doe")
-	}); err != nil {
-		t.Fatal(err)
-	}
-	opf = zipEntry(t, path, ".opf")
-	if bytes.Contains(opf, []byte(`refines="#author_0"`)) {
-		t.Errorf("stale creator refinement remains:\n%s", opf)
-	}
-	if !bytes.Contains(opf, []byte(">Jane Doe<")) {
-		t.Errorf("new creator missing:\n%s", opf)
-	}
-}
-
 // TestTitleRefinements checks that the title element and its refinements are
 // kept when the title is unchanged, and dropped cleanly when it is replaced.
 func TestTitleRefinements(t *testing.T) {
-	path := makeEPUB(t)
-	r, err := raitepub.OpenReader(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ed, err := r.Edit()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg := ed.CurrentPackage()
-	for i := range pkg.Metadata.Titles {
-		pkg.Metadata.Titles[i].ID = "title_0"
-	}
-	pkg.Metadata.Meta = append(pkg.Metadata.Meta,
-		pkgmeta.Meta{Property: "file-as", Refines: "#title_0", Value: "Left Hand of Darkness, The"},
-		pkgmeta.Meta{Property: "title-type", Refines: "#title_0", Value: "main"})
-	data, err := ed.Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	path := makeEPUBWith(t,
+		`<meta property="file-as" refines="#title">Left Hand of Darkness, The</meta>`+
+			`<meta property="title-type" refines="#title">main</meta>`)
 
 	if err := Update(path, func(p *Package) error {
 		return p.Set(FieldPublisher, "Orbit")
@@ -572,7 +668,7 @@ func TestTitleRefinements(t *testing.T) {
 		t.Fatal(err)
 	}
 	opf := zipEntry(t, path, ".opf")
-	if !bytes.Contains(opf, []byte(`refines="#title_0"`)) {
+	if !bytes.Contains(opf, []byte(`refines="#title"`)) {
 		t.Errorf("title refinement was lost:\n%s", opf)
 	}
 
@@ -582,7 +678,7 @@ func TestTitleRefinements(t *testing.T) {
 		t.Fatal(err)
 	}
 	opf = zipEntry(t, path, ".opf")
-	if bytes.Contains(opf, []byte(`refines="#title_0"`)) {
+	if bytes.Contains(opf, []byte(`refines="#title"`)) {
 		t.Errorf("stale title refinement remains:\n%s", opf)
 	}
 	if !bytes.Contains(opf, []byte(">There and Back Again<")) {
@@ -594,25 +690,7 @@ func TestTitleRefinements(t *testing.T) {
 // stay attached while the tag list is unchanged, and are dropped along with the
 // old elements when it changes.
 func TestSubjectRefinements(t *testing.T) {
-	path := makeEPUB(t)
-	r, err := raitepub.OpenReader(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ed, err := r.Edit()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg := ed.CurrentPackage()
-	pkg.Metadata.Meta = append(pkg.Metadata.Meta,
-		pkgmeta.Meta{Property: "authority", Refines: "#sf", Value: "BISAC"})
-	data, err := ed.Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	path := makeEPUBWith(t, `<meta property="authority" refines="#sf">BISAC</meta>`)
 
 	if err := Update(path, func(p *Package) error {
 		return p.Set(FieldPublisher, "Orbit")
@@ -641,27 +719,10 @@ func TestSubjectRefinements(t *testing.T) {
 // TestSetCollectionPreserved checks that a non-series collection is left alone
 // when the series is written.
 func TestSetCollectionPreserved(t *testing.T) {
-	path := makeEPUB(t)
-	r, err := raitepub.OpenReader(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ed, err := r.Edit()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg := ed.CurrentPackage()
-	pkg.Metadata.Meta = append(pkg.Metadata.Meta,
-		pkgmeta.Meta{ID: "boxed", Property: "belongs-to-collection", Value: "The Boxed Set"},
-		pkgmeta.Meta{Refines: "#boxed", Property: "collection-type", Value: "set"},
-		pkgmeta.Meta{ID: "list", Property: "belongs-to-collection", Value: "Best Novels of All Time"})
-	data, err := ed.Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	path := makeEPUBWith(t,
+		`<meta id="boxed" property="belongs-to-collection">The Boxed Set</meta>`+
+			`<meta refines="#boxed" property="collection-type">set</meta>`+
+			`<meta id="list" property="belongs-to-collection">Best Novels of All Time</meta>`)
 
 	before, err := ReadMetadata(path)
 	if err != nil {
@@ -694,28 +755,10 @@ func TestSetCollectionPreserved(t *testing.T) {
 // TestReadSeriesCollection checks reading a package that carries only the
 // standard EPUB 3.3 collection metadata.
 func TestReadSeriesCollection(t *testing.T) {
-	path := makeEPUB(t)
-	r, err := raitepub.OpenReader(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ed, err := r.Edit()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg := ed.CurrentPackage()
-	pkg.Metadata.Meta = append(pkg.Metadata.Meta,
-		pkgmeta.Meta{ID: "c1", Property: "belongs-to-collection", Value: "The Culture"},
-		pkgmeta.Meta{Refines: "#c1", Property: "collection-type", Value: "series"},
-		pkgmeta.Meta{Refines: "#c1", Property: "group-position", Value: "4"},
-	)
-	data, err := ed.Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	path := makeEPUBWith(t,
+		`<meta id="c1" property="belongs-to-collection">The Culture</meta>`+
+			`<meta refines="#c1" property="collection-type">series</meta>`+
+			`<meta refines="#c1" property="group-position">4</meta>`)
 
 	m, err := ReadMetadata(path)
 	if err != nil {
@@ -803,42 +846,34 @@ func TestArchiveMimetype(t *testing.T) {
 	}
 }
 
-// TestReadMetadataSurvivesDependencyPanic checks that a package which trips a
-// panic in the underlying editor's metadata parser becomes a normal per-file
-// error instead of crashing a shelf scan.
-func TestReadMetadataSurvivesDependencyPanic(t *testing.T) {
-	path := makeEPUB(t)
-	r, err := raitepub.OpenReader(path)
+// TestMetaKeyCollisionsAreReadable checks that a package with the same key in
+// name/content and property form is read and edited normally, and that the
+// untouched entries survive the edit.
+func TestMetaKeyCollisionsAreReadable(t *testing.T) {
+	path := makeEPUBWith(t,
+		`<meta name="schema:accessMode" content="textual"/>`+
+			`<meta property="schema:accessMode">visual</meta>`)
+
+	m, err := ReadMetadata(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("package with colliding meta keys is unreadable: %v", err)
 	}
-	ed, err := r.Edit()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkg := ed.CurrentPackage()
-	pkg.Metadata.Meta = append(pkg.Metadata.Meta,
-		pkgmeta.Meta{Name: "schema:accessMode", Content: "textual"},
-		pkgmeta.Meta{Property: "schema:accessMode", Value: "visual"},
-	)
-	data, err := ed.Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
+	if m.Title != "The Left Hand of Darkness" {
+		t.Errorf("Title = %q", m.Title)
 	}
 
-	if _, err := ReadMetadata(path); err == nil {
-		t.Fatal("expected the parser panic shape to become an error")
-	} else if !strings.Contains(err.Error(), "could not read metadata") {
-		t.Errorf("error = %v", err)
+	if err := Update(path, func(p *Package) error {
+		return p.Set(FieldPublisher, "Orbit")
+	}); err != nil {
+		t.Fatalf("package with colliding meta keys is not editable: %v", err)
 	}
-
-	if err := Update(path, func(p *Package) error { return nil }); err == nil {
-		t.Fatal("expected Update to report the parser panic as an error")
-	} else if !strings.Contains(err.Error(), "cannot edit this EPUB") {
-		t.Errorf("error = %v", err)
+	opf := zipEntry(t, path, ".opf")
+	if !bytes.Contains(opf, []byte(`name="schema:accessMode"`)) ||
+		!bytes.Contains(opf, []byte(`property="schema:accessMode"`)) {
+		t.Errorf("colliding metas were dropped:\n%s", opf)
+	}
+	if !bytes.Contains(opf, []byte("<dc:publisher>Orbit</dc:publisher>")) {
+		t.Errorf("publisher was not written:\n%s", opf)
 	}
 }
 

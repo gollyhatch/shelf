@@ -10,7 +10,9 @@ import (
 
 // Repair rewrites the package document of an EPUB to restore the conventional
 // dc: prefixes on Dublin Core elements and to normalize colliding meta keys.
-// Metadata values are not changed.
+// It exists for books damaged by older shelf releases; the current writer emits
+// prefixed elements and reads colliding metas, so repair is not a prerequisite
+// for editing. Metadata values are not changed.
 //
 // It reports whether the file needed a rewrite. With dryRun set, the file is
 // inspected but not written.
@@ -35,25 +37,13 @@ func Repair(name string, dryRun bool) (changed bool, err error) {
 // repairArchive applies the package-document fixes to an EPUB archive and
 // reports whether anything changed.
 func repairArchive(data []byte) ([]byte, bool, error) {
-	changed, err := needsRepair(data)
-	if err != nil || !changed {
-		return data, changed, err
-	}
-	fixed, err := finalizeArchive(data, false, "")
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, false, err
 	}
-	return fixed, true, nil
-}
 
-// needsRepair reports whether any package document in the archive needs the
-// Dublin Core prefix or meta-collision fixes.
-func needsRepair(data []byte) (bool, error) {
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return false, err
-	}
 	found := false
+	replace := make(map[string][]byte)
 	for _, f := range zr.File {
 		if !isOPF(f.Name) {
 			continue
@@ -61,18 +51,24 @@ func needsRepair(data []byte) (bool, error) {
 		found = true
 		content, err := readZipFile(f)
 		if err != nil {
-			return false, err
+			return nil, false, err
 		}
-		repaired := prefixDublinCore(content)
-		repaired = repairMetaCollisions(repaired)
-		if !bytes.Equal(repaired, content) {
-			return true, nil
+		fixed := repairMetaCollisions(prefixDublinCore(content))
+		if !bytes.Equal(fixed, content) {
+			replace[f.Name] = fixed
 		}
 	}
 	if !found {
-		return false, errors.New("no package document (.opf) found")
+		return nil, false, errors.New("no package document (.opf) found")
 	}
-	return false, nil
+	if len(replace) == 0 {
+		return data, false, nil
+	}
+	fixed, err := rewriteArchive(zr, replace)
+	if err != nil {
+		return nil, false, err
+	}
+	return fixed, true, nil
 }
 
 // isOPF reports whether a ZIP entry is a package document, regardless of the
