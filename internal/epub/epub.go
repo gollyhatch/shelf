@@ -36,7 +36,7 @@ const seriesCollectionID = "shelf-series"
 // the rest of the publication. Only the mimetype, the OCF container and the
 // package document are decompressed, so the cost does not scale with the book's
 // images or chapters.
-func ReadMetadata(name string) (meta Metadata, err error) {
+func ReadMetadata(name string) (Metadata, error) {
 	doc, err := readPackageDocument(name)
 	if err != nil {
 		return Metadata{}, fmt.Errorf("%s: %w", filepath.Base(name), err)

@@ -49,6 +49,15 @@ const fixtureChapter = `<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>One
 // path. The mimetype entry is written first and stored, as OCF requires.
 func writeEPUB(t *testing.T, opf string) string {
 	t.Helper()
+	return writeEPUBWithNCX(t, opf,
+		`<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head></head><docTitle><text>Book</text></docTitle></ncx>`)
+}
+
+// writeEPUBWithNCX builds an EPUB around the given package and navigation
+// documents and returns its path. The mimetype entry is written first and
+// stored, as OCF requires.
+func writeEPUBWithNCX(t *testing.T, opf, ncx string) string {
+	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	write := func(name string, content string) {
@@ -72,7 +81,7 @@ func writeEPUB(t *testing.T, opf string) string {
 	write("META-INF/container.xml", fixtureContainer)
 	write("OEBPS/content.opf", opf)
 	write("OEBPS/chapter-1.xhtml", fixtureChapter)
-	write("OEBPS/toc.ncx", `<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head></head><docTitle><text>Book</text></docTitle></ncx>`)
+	write("OEBPS/toc.ncx", ncx)
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -103,40 +112,8 @@ func makeEPUB2(t *testing.T) string {
 	t.Helper()
 	opf := strings.Replace(fixtureOPF, `version="3.0"`, `version="2.0"`, 1)
 	opf = strings.Replace(opf, "<!-- extra -->", "", 1)
-
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	write := func(name, content string) {
-		t.Helper()
-		w, err := zw.Create(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := w.Write([]byte(content)); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	w, err := zw.CreateHeader(&zip.FileHeader{Name: "mimetype", Method: zip.Store})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := w.Write([]byte(Mimetype)); err != nil {
-		t.Fatal(err)
-	}
-	write("META-INF/container.xml", fixtureContainer)
-	write("OEBPS/content.opf", opf)
-	write("OEBPS/chapter-1.xhtml", fixtureChapter)
-	write("OEBPS/toc.ncx", `<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="urn:isbn:1"/></head><docTitle><text>Book</text></docTitle></ncx>`)
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	path := filepath.Join(t.TempDir(), "book.epub")
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	return writeEPUBWithNCX(t, opf,
+		`<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="urn:isbn:1"/></head><docTitle><text>Book</text></docTitle></ncx>`)
 }
 
 // zipEntry returns the content of the first archive entry ending in suffix.

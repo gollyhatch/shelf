@@ -17,8 +17,9 @@ type metaAttr struct {
 }
 
 // repairMetaCollisions fixes packages where the same meta key appears in both
-// name/content and property forms. The EPUB library stores the name form as a
-// string and then panics when it tries to append the property form as a slice.
+// name/content and property forms. Older shelf releases could not open such a
+// file, so repair is the migration path for books they were pointed at before
+// the current reader learned to tolerate the shape.
 //
 // In EPUB 3 the name forms are converted to property forms so all values are
 // preserved. Calibre name metas are left as they are and the property duplicate

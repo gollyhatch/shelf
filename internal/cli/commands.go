@@ -618,8 +618,12 @@ func repairCmd(defaultDir string) *cobra.Command {
 		Long: `Repair rewrites the package document of each EPUB to restore the conventional
 dc: XML namespace prefixes used by most reading systems. It also normalizes
 books that contain the same metadata key in both <meta name="..."> and
-<meta property="..."> form, which some readers cannot parse. Metadata values
-are not changed, and files that are already correct are left untouched.
+<meta property="..."> form. Metadata values are not changed, and files that
+are already correct are left untouched.
+
+The shapes it fixes were produced by older shelf releases; current saves are
+already clean and reading tolerates duplicate keys, so repair is a one-time
+migration rather than part of the normal edit flow.
 
 Arguments may be EPUB files or directories. With no arguments, the configured
 library (or the current directory) is used. Use --dry-run to preview and

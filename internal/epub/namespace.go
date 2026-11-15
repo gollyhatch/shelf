@@ -9,10 +9,10 @@ const dublinCoreNS = "http://purl.org/dc/elements/1.1/"
 
 var (
 	// startTag matches an element start tag, including self-closing tags. The
-	// package documents shelf writes are generated XML, so '>' only terminates
-	// a tag and never appears inside an attribute value. Prefixed names are
-	// allowed so already-prefixed documents can be inspected without losing
-	// track of their element stack.
+	// package documents older shelf releases wrote are generated XML, so '>'
+	// only terminates a tag and never appears inside an attribute value.
+	// Prefixed names are allowed so already-prefixed documents can be inspected
+	// without losing track of their element stack.
 	startTag = regexp.MustCompile(`<([A-Za-z_][A-Za-z0-9_.:-]*)([^>]*)>`)
 	// endTag matches an element end tag.
 	endTag = regexp.MustCompile(`</([A-Za-z_][A-Za-z0-9_.:-]*)\s*>`)
@@ -27,11 +27,11 @@ type tagFrame struct {
 }
 
 // prefixDublinCore restores the conventional dc: prefix on Dublin Core
-// elements. Go's encoding/xml, which the EPUB library uses, does not preserve
-// namespace prefixes: it writes each element in the DC namespace with a
-// default xmlns declaration. The resulting XML is namespace-correct, but
-// readers that look elements up by qualified name (for example
-// getElementsByTagName("dc:title")) then find no metadata.
+// elements. Older shelf releases re-marshalled the package document with
+// encoding/xml, which does not preserve namespace prefixes: it writes each
+// element in the DC namespace with a default xmlns declaration. The resulting
+// XML is namespace-correct, but readers that look elements up by qualified name
+// (for example getElementsByTagName("dc:title")) then find no metadata.
 //
 // Tags are processed in document order with a stack so that only the closing
 // tag belonging to a rewritten element is prefixed. A previous version keyed
