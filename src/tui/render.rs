@@ -23,6 +23,10 @@ impl App {
         self.width = area.width as usize;
         self.height = area.height as usize;
 
+        // The theme's canvas goes down first: every screen below paints only
+        // foreground colours, so these backgrounds show through.
+        frame.render_widget(Block::default().style(self.styles.base), area);
+
         if let Some(fatal) = &self.fatal {
             let lines = vec![
                 Line::default(),
@@ -282,7 +286,15 @@ impl App {
         } else {
             self.styles.border_unfocused
         };
+        // The detail pane sits on the theme's panel layer; the list pane keeps
+        // the canvas.
+        let background = if pane == Pane::Detail {
+            self.styles.panel
+        } else {
+            self.styles.base
+        };
         let block = Block::default()
+            .style(background)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border))
@@ -803,6 +815,7 @@ impl App {
             as u16;
         let rect = Rect::new(area.x, y, outer_w, outer_h);
         let block = Block::default()
+            .style(self.styles.elevated)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(self.styles.border_focused))
@@ -1272,6 +1285,7 @@ impl App {
         let rect = Rect::new(x, y, outer_w, outer_h);
         frame.render_widget(Clear, rect);
         let block = Block::default()
+            .style(self.styles.elevated)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border))

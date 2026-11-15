@@ -64,6 +64,12 @@ pub fn load(name: &str) -> Result<Theme> {
 #[derive(Clone)]
 pub struct Styles {
     pub theme: Theme,
+    /// Canvas painted behind every screen: `bg.base` with `text.primary`.
+    pub base: Style,
+    /// Secondary pane background, from `bg.panel`.
+    pub panel: Style,
+    /// Floating panels and dialogs, from `bg.elevated`.
+    pub elevated: Style,
     pub border_focused: Color,
     pub border_unfocused: Color,
     pub brand: Style,
@@ -112,8 +118,13 @@ impl Styles {
         let series = color("accent.deep");
         let sel_series = color("accent.tertiary");
         let base = color("bg.base");
+        let panel = color("bg.panel");
+        let elevated = color("bg.elevated");
 
         Self {
+            base: Style::default().fg(text).bg(base),
+            panel: Style::default().fg(text).bg(panel),
+            elevated: Style::default().fg(text).bg(elevated),
             border_focused: color("border.focused"),
             border_unfocused: color("border.unfocused"),
             brand: Style::default()
@@ -210,12 +221,18 @@ mod tests {
     }
 
     #[test]
-    fn themes_have_distinct_accents() {
-        let gruvbox = load("gruvbox-dark").unwrap();
-        let dracula = load("dracula").unwrap();
-        assert_ne!(
-            Color::from(gruvbox.color("accent.primary")),
-            Color::from(dracula.color("accent.primary"))
-        );
+    fn styles_carry_theme_backgrounds() {
+        let theme = load(DEFAULT_THEME).unwrap();
+        let styles = Styles::new(theme.clone());
+        for (style, token) in [
+            (&styles.base, opaline::names::tokens::BG_BASE),
+            (&styles.panel, opaline::names::tokens::BG_PANEL),
+            (&styles.elevated, opaline::names::tokens::BG_ELEVATED),
+        ] {
+            assert_eq!(style.bg, Some(Color::from(theme.color(token))), "{token}");
+            assert_eq!(style.fg, Some(Color::from(theme.color("text.primary"))));
+        }
+        assert_ne!(styles.base.bg, styles.panel.bg);
+        assert_ne!(styles.panel.bg, styles.elevated.bg);
     }
 }

@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::buffer::Buffer;
 
 use super::app::{App, Mode, Pane, RowKind, StatusKind};
 use super::{RunOptions, theme};
@@ -113,12 +114,21 @@ fn wait_until(app: &mut App, cond: impl Fn(&App) -> bool) {
     assert!(cond(app), "condition was not reached");
 }
 
-fn render(app: &mut App, width: u16, height: u16) -> String {
+fn render_buffer(
+    app: &mut App,
+    width: u16,
+    height: u16,
+) -> (Buffer, ratatui::layout::Rect) {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).unwrap();
     terminal.draw(|frame| app.view(frame)).unwrap();
-    let buffer = terminal.backend().buffer();
+    let buffer = terminal.backend().buffer().clone();
     let area = *buffer.area();
+    (buffer, area)
+}
+
+fn render(app: &mut App, width: u16, height: u16) -> String {
+    let (buffer, area) = render_buffer(app, width, height);
     let mut out = String::new();
     for y in 0..area.height {
         for x in 0..area.width {
@@ -164,6 +174,36 @@ fn view_fits_small_terminals() {
             }
         }
     }
+}
+
+#[test]
+fn theme_backgrounds_are_painted() {
+    let mut app = app_with(entries(), options());
+    let (buffer, area) = render_buffer(&mut app, 120, 30);
+    let base = app.styles.base.bg.expect("canvas background");
+    let panel = app.styles.panel.bg.expect("panel background");
+    let elevated = app.styles.elevated.bg.expect("elevated background");
+    assert_ne!(base, panel, "gruvbox-dark separates canvas and panel");
+
+    // The blank row between header and body is the bare canvas.
+    for x in 0..area.width {
+        assert_eq!(buffer[(x, 1)].bg, base, "row 1 column {x}");
+    }
+    // Wide layout: list pane on the left of the canvas, detail pane on the
+    // panel layer on the right.
+    assert_eq!(buffer[(0, 3)].bg, base);
+    assert_eq!(buffer[(area.width - 1, 3)].bg, panel);
+
+    // Dialogs paint the elevated layer, and the canvas still shows outside
+    // them.
+    app.help_open = true;
+    let (buffer, area) = render_buffer(&mut app, 120, 30);
+    let painted = (0..area.height)
+        .flat_map(|y| (0..area.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| buffer[(x, y)].bg == elevated)
+        .count();
+    assert!(painted > 0, "help dialog paints the elevated background");
+    assert_eq!(buffer[(0, area.height - 1)].bg, base);
 }
 
 #[test]
