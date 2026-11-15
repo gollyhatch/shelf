@@ -1,4 +1,4 @@
-//! Fetch book metadata from an online catalogue (Google Books).
+//! Fetch book metadata from an online catalog (Google Books).
 
 use std::io::Read;
 use std::time::Duration;

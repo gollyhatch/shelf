@@ -1,4 +1,4 @@
-//! Normalisation of packages where the same meta key appears in both
+//! Normalization of packages where the same meta key appears in both
 //! `name`/`content` and `property` forms.
 
 use std::collections::HashSet;

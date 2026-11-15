@@ -20,7 +20,7 @@ pub struct Config {
     pub sort: String,
     /// Opened in the default browser for the selected book.
     pub search_url: String,
-    /// Selects the TUI colour palette: any opaline theme id. The default is
+    /// Selects the TUI color palette: any opaline theme id. The default is
     /// "gruvbox-dark".
     pub theme: String,
     /// Optional Google Books API key. Unauthenticated requests share a small

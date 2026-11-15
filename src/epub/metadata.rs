@@ -1,7 +1,7 @@
 //! The editable subset of an EPUB package's metadata.
 
 /// A Dublin Core creator (author, editor, illustrator, ...). Only the display
-/// name is modelled. Elements of creators that are not edited keep their
+/// name is modeled. Elements of creators that are not edited keep their
 /// `opf:role` / `opf:file-as` attributes; replacing a creator writes a bare name
 /// and drops that element's refinements.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -41,7 +41,7 @@ pub struct Metadata {
     pub read: bool,
 }
 
-/// Parse a read status value. Unrecognised or empty values mean unread.
+/// Parse a read status value. Unrecognized or empty values mean unread.
 pub fn parse_read_status(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -50,7 +50,7 @@ pub fn parse_read_status(value: &str) -> bool {
 }
 
 /// Parse an author into a [`Creator`], keeping only the display name. A
-/// parenthesised suffix (the legacy "Name (role; file-as)" form) is dropped so
+/// parenthesized suffix (the legacy "Name (role; file-as)" form) is dropped so
 /// role/file-as input degrades gracefully to a bare name.
 pub fn parse_creator(s: &str) -> Creator {
     let s = s.trim();

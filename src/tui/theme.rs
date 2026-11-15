@@ -1,4 +1,4 @@
-//! Colour palettes, sourced from opaline themes, and the styles derived from
+//! Color palettes, sourced from opaline themes, and the styles derived from
 //! their semantic tokens.
 
 use anyhow::Result;

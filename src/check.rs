@@ -317,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn isbn_normalisation() {
+    fn isbn_normalization() {
         assert_eq!(
             normalize_isbn("urn:isbn:978-0-441-01359-3"),
             "9780441013593"

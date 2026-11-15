@@ -80,13 +80,13 @@ the same placeholders as `rename_format`, e.g. `%a` for author, `%t` for title,
 names. Values are URL-escaped. When the setting is absent, `ctrl+k` does
 nothing.
 
-`theme` selects the TUI colour palette. Every theme that ships with opaline is
+`theme` selects the TUI color palette. Every theme that ships with opaline is
 available by its id: `gruvbox-dark` is the default, and ids such as
 `catppuccin-mocha`, `nord`, `tokyo-night` or `solarized-light` work too. An
 unknown theme is reported as a configuration error at startup. Press `ctrl+t`
 in the TUI to open the theme selector over the shelf: it lists every opaline
 built-in theme, previews the highlighted one on the panes behind the pop-over
-as you move and applies it with `enter`. The theme's canvas colour (`bg.base`)
+as you move and applies it with `enter`. The theme's canvas color (`bg.base`)
 is painted across the whole terminal, so the shelf keeps its own background
 instead of borrowing the terminal's.
 
@@ -300,7 +300,7 @@ Field names are case insensitive and accept aliases: `author`/`creator`,
 
 ### Stats
 
-`stats` summarises a shelf: readable and unreadable files, read and unread
+`stats` summarizes a shelf: readable and unreadable files, read and unread
 books, unique authors, series, tags and languages, total size on disk, and the
 most common authors and series.
 
@@ -474,7 +474,7 @@ shelf man --dir man/         # pages for every command
   is never fully decompressed into memory.
 - **Byte-span XML edits.** The package document is parsed with
   `quick-xml` while recording the byte span of every metadata child, so an edit
-  splices only the changed elements instead of re-serialising the document.
+  splices only the changed elements instead of re-serializing the document.
 - **Calibre and EPUB 3.3 aware.** Series and episode number are written both as
   the Calibre `calibre:series` / `calibre:series_index` `<meta>` entries and, on
   EPUB 3 files, as the standard `belongs-to-collection`, `collection-type` and

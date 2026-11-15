@@ -1,4 +1,4 @@
-//! File naming for `rename` and `M`: slugification, sanitisation and the
+//! File naming for `rename` and `M`: slugification, sanitization and the
 //! `--format` placeholder language shared with the TUI.
 
 use anyhow::{Result, bail};

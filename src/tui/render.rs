@@ -24,7 +24,7 @@ impl App {
         self.height = area.height as usize;
 
         // The theme's canvas goes down first: every screen below paints only
-        // foreground colours, so these backgrounds show through.
+        // foreground colors, so these backgrounds show through.
         frame.render_widget(Block::default().style(self.styles.base), area);
 
         if let Some(fatal) = &self.fatal {
@@ -1275,7 +1275,7 @@ impl App {
         let y = area.y + area.height.saturating_sub(outer_h) / 2;
         let rect = Rect::new(x, y, outer_w, outer_h);
         frame.render_widget(Clear, rect);
-        // `Clear` drops every cell back to the terminal's own colours, so put
+        // `Clear` drops every cell back to the terminal's own colors, so put
         // the theme canvas back before drawing the dialog over it.
         frame.render_widget(Block::default().style(self.styles.base), rect);
         let block = Block::default()
