@@ -18,6 +18,25 @@ attributes, EPUB 3 refinements, comments and ordering), and chapters, images and
 the cover are never re-compressed. A save is minimal: only replacing a creator,
 title or tag list drops that element's refinements.
 
+## Screenshots
+
+Browse the shelf and see the selected book's metadata, in `ayu-dark`:
+
+![shelf showing a library of books and the selected book's metadata](screenshots/browse-ayu-dark.png)
+
+Filter with free text or a field prefix such as `author:`:
+
+![shelf filtered to Ursula K. Le Guin's books](screenshots/search-ayu-dark.png)
+
+Edit a field in place, in `gruvbox-dark`; `enter` saves and `esc` cancels:
+
+![editing the title of a book in shelf](screenshots/edit-gruvbox-dark.png)
+
+Press `ctrl+t` for the theme selector, which previews every opaline theme on
+the shelf behind it before `enter` applies one:
+
+![the theme selector listing every opaline built-in theme](screenshots/themes-gruvbox-dark.png)
+
 ## Install
 
 ```sh
