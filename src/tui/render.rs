@@ -719,7 +719,7 @@ impl App {
                         text
                     )
                 } else {
-                    format!("{indent} {text}")
+                    format!("{indent}{text}")
                 };
                 lines.push(Line::from(Span::styled(
                     pad_right(&plain, width),
@@ -739,7 +739,7 @@ impl App {
                 ]));
             } else {
                 lines.push(Line::from(vec![
-                    Span::raw(format!("{indent} ")),
+                    Span::raw(indent.clone()),
                     Span::styled(text.clone(), self.styles.value),
                 ]));
             }

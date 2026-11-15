@@ -918,3 +918,47 @@ fn theme_selector_floats_over_the_shelf() {
     assert!(previewed.contains("Books ·"));
     assert_ne!(accent_before, app.styles.theme.color("accent.primary"));
 }
+
+#[test]
+fn wrapped_description_continuation_aligns() {
+    let mut book =
+        entry("dune.epub", "Dune", "Frank Herbert", "Dune", "1", true);
+    book.metadata.description = "A novel about a desert planet, its people and \
+         the generations who fight over it after the machines fall silent."
+        .into();
+    let mut app = app_with(vec![book], options());
+    let (buffer, area) = render_buffer(&mut app, 120, 40);
+    let rows: Vec<String> = (0..area.height)
+        .map(|y| (0..area.width).map(|x| buffer[(x, y)].symbol()).collect())
+        .collect();
+    let cells: Vec<Vec<char>> =
+        rows.iter().map(|row| row.chars().collect()).collect();
+    let row = rows
+        .iter()
+        .position(|line| line.contains("Description:"))
+        .expect("description row");
+    let label = "Description:";
+    let at = cells[row]
+        .windows(label.len())
+        .position(|window| window.iter().collect::<String>() == label)
+        .expect("label position");
+    let column = at + label.len() + 1;
+    assert!(
+        rows[row + 1].contains("generations"),
+        "description should wrap: {:?}",
+        rows[row]
+    );
+    let start = cells[row + 1]
+        .iter()
+        .enumerate()
+        .skip(column)
+        .find(|(_, c)| **c != ' ')
+        .map(|(x, _)| x)
+        .expect("continuation text");
+    assert_eq!(
+        start,
+        column,
+        "continuation {:?} lines up with the value",
+        rows[row + 1].trim()
+    );
+}
