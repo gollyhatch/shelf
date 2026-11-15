@@ -1,7 +1,8 @@
 # shelf
 
-`shelf` manages the metadata of EPUB files from the terminal. It has two
-faces:
+`shelf` manages the metadata of EPUB files from the terminal. It is written in
+Rust, with a [ratatui](https://ratatui.rs) interface and
+[opaline](https://crates.io/crates/opaline) themes. It has two faces:
 
 - a **TUI** that lists every EPUB on a shelf and lets you view and edit each
   Dublin Core field in place, and
@@ -17,26 +18,12 @@ attributes, EPUB 3 refinements, comments and ordering), and chapters, images and
 the cover are never re-compressed. A save is minimal: only replacing a creator,
 title or tag list drops that element's refinements.
 
-## Screenshots
-
-Browse the shelf and see the selected book's metadata:
-
-![shelf showing a library of books and the selected book's metadata](screenshots/tui.png)
-
-Filter with free text or a field prefix such as `author:`:
-
-![shelf filtered to Ursula K. Le Guin's books](screenshots/search.png)
-
-Edit a field in place; `enter` saves and `esc` cancels:
-
-![editing the title of a book in shelf](screenshots/edit.png)
-
 ## Install
 
 ```sh
-go install github.com/gollyhatch/shelf@latest
+cargo install --path .
 # or build from source
-go build -o shelf .
+cargo build --release   # binary at target/release/shelf
 ```
 
 ## Configuration
@@ -49,7 +36,7 @@ shelf reads an optional TOML file from
 library = "/path/to/books"
 viewer = "zathura"
 sort = "title"
-theme = "gruvbox"
+theme = "gruvbox-dark"
 search_url = "https://www.google.com/search?q=%a+%t"
 google_books_api_key = "your-google-books-api-key"
 rename_format = "%a - %t.epub"
@@ -74,10 +61,13 @@ the same placeholders as `rename_format`, e.g. `%a` for author, `%t` for title,
 names. Values are URL-escaped. When the setting is absent, `ctrl+k` does
 nothing.
 
-`theme` selects the TUI colour palette. The built-in themes are `gruvbox`
-(default), `ayu dark`, `dracula` and `catppuccin`. An unknown theme is reported
-as a configuration error at startup. Press `ctrl+t` in the TUI to cycle through
-the themes without restarting.
+`theme` selects the TUI colour palette. Every theme that ships with opaline is
+available by its id: `gruvbox-dark` is the default, and ids such as
+`catppuccin-mocha`, `nord`, `tokyo-night` or `solarized-light` work too. An
+unknown theme is reported as a configuration error at startup. Press `ctrl+t`
+in the TUI to open the theme selector over the shelf: it lists every opaline
+built-in theme, previews the highlighted one on the panes behind the pop-over
+as you move and applies it with `enter`.
 
 `sort` sets the Books pane order at startup. Use `path` (the default), `title`,
 `author`, `series`, `date` or `language`, optionally followed by a direction:
@@ -184,7 +174,7 @@ AND binds tighter than OR, so `author:herbert read:no OR title:dune` means
 | `S` | choose the Books sort order |
 | `ctrl+o` | open the book under the cursor in the configured viewer |
 | `ctrl+k` | open the configured `search_url` in the default browser |
-| `ctrl+t` | cycle through the built-in themes |
+| `ctrl+t` | open the theme selector (preview with `↑`/`↓`, `enter` applies) |
 | `?` | open the keyboard help dialog |
 | `R` | rescan the directory |
 | `r` | repair the selected book when its metadata could not be read |
@@ -335,8 +325,8 @@ falling back to the current directory.
 
 ### Modify
 
-`modify` applies a Go regular expression to the existing values of the fields
-you select. Field flags work like `set`, but are switches here:
+`modify` applies a regular expression to the existing values of the fields you
+select. Field flags work like `set`, but are switches here:
 
 ```sh
 shelf modify --title -e 'Dune' --replacement 'DUNE' dune.epub
@@ -345,7 +335,7 @@ shelf modify --author -e '\bUrsula\b' --replacement 'Ursula K.' dune.epub
 ```
 
 `-e, --regex` is required; `--replacement` defaults to empty, which deletes
-matched text. The replacement supports Go's `$1` and `${name}` expansion.
+matched text. The replacement supports `$1` and `${name}` expansion.
 Authors and tags are modified individually. Values that do not match are left
 alone, and a run with no matches does not rewrite the file. One expression is
 applied to every selected field.
@@ -453,7 +443,7 @@ shelf man --dir man/         # pages for every command
 
 ## Design notes
 
-- **Minimal in-place editing.** `internal/epub` reads metadata directly from the
+- **Minimal in-place editing.** `src/epub` reads metadata directly from the
   EPUB ZIP, decompressing only `META-INF/container.xml` and the package
   document. A save edits the metadata block of the package document in place
   and copies every other entry in compressed form; the file is replaced
@@ -461,6 +451,9 @@ shelf man --dir man/         # pages for every command
   truncate the book). Untouched elements keep their exact bytes, so namespace
   prefixes, unknown attributes, refinements and comments survive. The archive
   is never fully decompressed into memory.
+- **Byte-span XML edits.** The package document is parsed with
+  `quick-xml` while recording the byte span of every metadata child, so an edit
+  splices only the changed elements instead of re-serialising the document.
 - **Calibre and EPUB 3.3 aware.** Series and episode number are written both as
   the Calibre `calibre:series` / `calibre:series_index` `<meta>` entries and, on
   EPUB 3 files, as the standard `belongs-to-collection`, `collection-type` and
@@ -473,12 +466,13 @@ shelf man --dir man/         # pages for every command
 ## Development
 
 ```sh
-go build ./...      # compile
-go test ./...       # run the unit tests
-go vet ./...        # static checks
+cargo build          # compile
+cargo test           # run the unit and model tests
+cargo clippy         # static checks
 ```
 
-`internal/epub` is the read/write engine and is covered by round-trip tests
+`src/epub` is the read/write engine and is covered by round-trip tests
 (read → edit → re-read, series meta, clearing fields, permission preservation,
-and no-op saves). `internal/tui` is covered by tests that drive the Bubble Tea
-model and assert the rendered view never overflows the terminal at any size.
+and no-op saves). `src/tui` is covered by tests that drive the model and render
+through ratatui's `TestBackend`, asserting the frame never exceeds the terminal
+at any size.

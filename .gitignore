@@ -1,8 +1,7 @@
 # Build artifacts
-/shelf
+/target
 *.epub
 *.test
-coverage.out
 
 # Editor/OS noise
 .DS_Store
