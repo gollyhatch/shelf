@@ -286,15 +286,7 @@ impl App {
         } else {
             self.styles.border_unfocused
         };
-        // The detail pane sits on the theme's panel layer; the list pane keeps
-        // the canvas.
-        let background = if pane == Pane::Detail {
-            self.styles.panel
-        } else {
-            self.styles.base
-        };
         let block = Block::default()
-            .style(background)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border))
@@ -815,7 +807,6 @@ impl App {
             as u16;
         let rect = Rect::new(area.x, y, outer_w, outer_h);
         let block = Block::default()
-            .style(self.styles.elevated)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(self.styles.border_focused))
@@ -1284,8 +1275,10 @@ impl App {
         let y = area.y + area.height.saturating_sub(outer_h) / 2;
         let rect = Rect::new(x, y, outer_w, outer_h);
         frame.render_widget(Clear, rect);
+        // `Clear` drops every cell back to the terminal's own colours, so put
+        // the theme canvas back before drawing the dialog over it.
+        frame.render_widget(Block::default().style(self.styles.base), rect);
         let block = Block::default()
-            .style(self.styles.elevated)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border))

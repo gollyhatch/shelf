@@ -67,7 +67,9 @@ available by its id: `gruvbox-dark` is the default, and ids such as
 unknown theme is reported as a configuration error at startup. Press `ctrl+t`
 in the TUI to open the theme selector over the shelf: it lists every opaline
 built-in theme, previews the highlighted one on the panes behind the pop-over
-as you move and applies it with `enter`.
+as you move and applies it with `enter`. The theme's canvas colour (`bg.base`)
+is painted across the whole terminal, so the shelf keeps its own background
+instead of borrowing the terminal's.
 
 `sort` sets the Books pane order at startup. Use `path` (the default), `title`,
 `author`, `series`, `date` or `language`, optionally followed by a direction:
