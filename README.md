@@ -17,6 +17,20 @@ attributes, EPUB 3 refinements, comments and ordering), and chapters, images and
 the cover are never re-compressed. A save is minimal: only replacing a creator,
 title or tag list drops that element's refinements.
 
+## Screenshots
+
+Browse the shelf and see the selected book's metadata:
+
+![shelf showing a library of books and the selected book's metadata](screenshots/tui.png)
+
+Filter with free text or a field prefix such as `author:`:
+
+![shelf filtered to Ursula K. Le Guin's books](screenshots/search.png)
+
+Edit a field in place; `enter` saves and `esc` cancels:
+
+![editing the title of a book in shelf](screenshots/edit.png)
+
 ## Install
 
 ```sh
