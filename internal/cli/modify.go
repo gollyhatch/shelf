@@ -116,50 +116,29 @@ supports Go's $1, ${name} expansion. With no arguments, the configured library
 }
 
 // modifyPackage applies the expression to the selected fields of an open EPUB.
+// It reuses the dry-run transformation so both paths interpret the expression
+// identically, and only writes fields that actually changed.
 func modifyPackage(p *epub.Package, fields []epub.Field, re *regexp.Regexp, replacement string) error {
-	meta := p.Metadata()
+	before := p.Metadata()
+	after := modifyMetadata(before, fields, re, replacement)
+
+	if !slices.Equal(before.Creators, after.Creators) {
+		if err := p.SetCreators(after.Creators); err != nil {
+			return err
+		}
+	}
+	if !slices.Equal(before.Subjects, after.Subjects) {
+		if err := p.SetSubjects(after.Subjects); err != nil {
+			return err
+		}
+	}
 	for _, field := range fields {
-		switch field {
-		case epub.FieldAuthor:
-			current := meta.Creators
-			updated := make([]epub.Creator, 0, len(current))
-			for _, creator := range current {
-				name := strings.TrimSpace(re.ReplaceAllString(creator.Name, replacement))
-				if name != "" {
-					updated = append(updated, epub.Creator{Name: name})
-				}
-			}
-			if !slices.Equal(current, updated) {
-				if err := p.SetCreators(updated); err != nil {
-					return err
-				}
-			}
-
-		case epub.FieldTags:
-			current := meta.Subjects
-			updated := make([]string, 0, len(current))
-			for _, subject := range current {
-				value := strings.TrimSpace(re.ReplaceAllString(subject, replacement))
-				if value != "" {
-					updated = append(updated, value)
-				}
-			}
-			if !slices.Equal(current, updated) {
-				if err := p.SetSubjects(updated); err != nil {
-					return err
-				}
-			}
-
-		default:
-			current := strings.TrimSpace(meta.Get(field))
-			if current == "" {
-				continue
-			}
-			updated := strings.TrimSpace(re.ReplaceAllString(current, replacement))
-			if updated != current {
-				if err := p.Set(field, updated); err != nil {
-					return err
-				}
+		if field == epub.FieldAuthor || field == epub.FieldTags {
+			continue
+		}
+		if value := after.Get(field); value != before.Get(field) {
+			if err := p.Set(field, value); err != nil {
+				return err
 			}
 		}
 	}
@@ -195,40 +174,8 @@ func modifyMetadata(m epub.Metadata, fields []epub.Field, re *regexp.Regexp, rep
 			if current == "" {
 				continue
 			}
-			setMetadataField(&m, field, strings.TrimSpace(re.ReplaceAllString(current, replacement)))
+			m, _ = m.Apply(field, re.ReplaceAllString(current, replacement), false)
 		}
 	}
 	return m
-}
-
-// setMetadataField stores a scalar field on an in-memory Metadata value.
-func setMetadataField(m *epub.Metadata, field epub.Field, value string) {
-	switch field {
-	case epub.FieldTitle:
-		m.Title = value
-	case epub.FieldSubtitle:
-		m.Subtitle = value
-	case epub.FieldAuthor:
-		m.Creators = epub.ParseCreatorList(value)
-	case epub.FieldTags:
-		m.Subjects = epub.SplitList(value, ",")
-	case epub.FieldSeries:
-		m.Series = value
-	case epub.FieldSeriesIndex:
-		m.SeriesIndex = value
-	case epub.FieldDescription:
-		m.Description = value
-	case epub.FieldPublisher:
-		m.Publisher = value
-	case epub.FieldDate:
-		m.Date = value
-	case epub.FieldLanguage:
-		m.Language = value
-	case epub.FieldRights:
-		m.Rights = value
-	case epub.FieldIdentifier:
-		m.Identifier = value
-	case epub.FieldRead:
-		m.Read = epub.ParseReadStatus(value)
-	}
 }

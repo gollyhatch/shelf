@@ -147,49 +147,60 @@ func (p *Package) SetWith(f Field, value string, appendMode bool) error {
 }
 
 func (p *Package) set(f Field, value string, appendMode bool) error {
+	meta, err := p.meta.Apply(f, value, appendMode)
+	if err != nil {
+		return err
+	}
+	p.meta = meta
+	p.dirty = true
+	return nil
+}
+
+// Apply returns m with the field updated the same way Package.Set updates a
+// package, so callers can preview an edit without touching a file.
+func (m Metadata) Apply(f Field, value string, appendMode bool) (Metadata, error) {
 	value = strings.TrimSpace(value)
 	switch f {
 	case FieldTitle:
-		p.meta.Title = appendText(p.meta.Title, value, appendMode)
+		m.Title = appendText(m.Title, value, appendMode)
 	case FieldSubtitle:
-		p.meta.Subtitle = appendText(p.meta.Subtitle, value, appendMode)
+		m.Subtitle = appendText(m.Subtitle, value, appendMode)
 	case FieldAuthor:
-		cs := ParseCreatorList(value)
+		creators := ParseCreatorList(value)
 		if appendMode {
-			p.meta.Creators = append(p.meta.Creators, cs...)
+			m.Creators = append(m.Creators, creators...)
 		} else {
-			p.meta.Creators = cs
+			m.Creators = creators
 		}
 	case FieldTags:
-		ss := SplitList(value, ",")
+		subjects := SplitList(value, ",")
 		if appendMode {
-			p.meta.Subjects = append(p.meta.Subjects, ss...)
+			m.Subjects = append(m.Subjects, subjects...)
 		} else {
-			p.meta.Subjects = ss
+			m.Subjects = subjects
 		}
 	case FieldSeries:
-		p.meta.Series = appendText(p.meta.Series, value, appendMode)
+		m.Series = appendText(m.Series, value, appendMode)
 	case FieldSeriesIndex:
-		p.meta.SeriesIndex = value
+		m.SeriesIndex = value
 	case FieldDescription:
-		p.meta.Description = appendText(p.meta.Description, value, appendMode)
+		m.Description = appendText(m.Description, value, appendMode)
 	case FieldPublisher:
-		p.meta.Publisher = appendText(p.meta.Publisher, value, appendMode)
+		m.Publisher = appendText(m.Publisher, value, appendMode)
 	case FieldDate:
-		p.meta.Date = appendText(p.meta.Date, value, appendMode)
+		m.Date = appendText(m.Date, value, appendMode)
 	case FieldLanguage:
-		p.meta.Language = appendText(p.meta.Language, value, appendMode)
+		m.Language = appendText(m.Language, value, appendMode)
 	case FieldRights:
-		p.meta.Rights = appendText(p.meta.Rights, value, appendMode)
+		m.Rights = appendText(m.Rights, value, appendMode)
 	case FieldIdentifier:
-		p.meta.Identifier = appendText(p.meta.Identifier, value, appendMode)
+		m.Identifier = appendText(m.Identifier, value, appendMode)
 	case FieldRead:
-		p.meta.Read = ParseReadStatus(value)
+		m.Read = ParseReadStatus(value)
 	default:
-		return fmt.Errorf("epub: unknown field %q", f)
+		return m, fmt.Errorf("epub: unknown field %q", f)
 	}
-	p.dirty = true
-	return nil
+	return m, nil
 }
 
 // appendText implements --append for single valued fields by joining with ", ".
@@ -247,14 +258,15 @@ func cloneMetadata(m Metadata) Metadata {
 
 // save rewrites the package document and the archive around it.
 func (p *Package) save() error {
+	base := filepath.Base(p.path)
 	opf, err := editOPF(p.doc, p.orig, p.meta)
 	if err != nil {
-		return fmt.Errorf("%s: %w", filepath.Base(p.path), err)
+		return fmt.Errorf("%s: %w", base, err)
 	}
 
 	zr, err := zip.OpenReader(p.path)
 	if err != nil {
-		return fmt.Errorf("%s: %w", filepath.Base(p.path), err)
+		return fmt.Errorf("%s: %w", base, err)
 	}
 	defer zr.Close()
 
@@ -266,7 +278,7 @@ func (p *Package) save() error {
 			}
 			content, err := readZipFile(f)
 			if err != nil {
-				return fmt.Errorf("%s: %w", filepath.Base(p.path), err)
+				return fmt.Errorf("%s: %w", base, err)
 			}
 			replace[f.Name] = syncNCXIdentifier(content, p.meta.Identifier)
 		}
@@ -274,7 +286,7 @@ func (p *Package) save() error {
 
 	data, err := rewriteArchive(&zr.Reader, replace)
 	if err != nil {
-		return fmt.Errorf("%s: %w", filepath.Base(p.path), err)
+		return fmt.Errorf("%s: %w", base, err)
 	}
 	return writeFileAtomic(p.path, data)
 }

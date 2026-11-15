@@ -380,49 +380,12 @@ func applyFiles(
 	return nil
 }
 
-// preview applies changes to an in-memory Metadata for --dry-run reporting.
+// preview applies changes to an in-memory Metadata for --dry-run reporting,
+// using the same field logic as a real edit.
 func preview(m epub.Metadata, updates map[epub.Field]string, fields []epub.Field, appendMode bool) epub.Metadata {
-	join := func(current, value string) string {
-		if appendMode && current != "" && value != "" {
-			return current + ", " + value
-		}
-		return value
-	}
 	for _, field := range fields {
-		value := strings.TrimSpace(updates[field])
-		switch field {
-		case epub.FieldTitle:
-			m.Title = join(m.Title, value)
-		case epub.FieldSubtitle:
-			m.Subtitle = join(m.Subtitle, value)
-		case epub.FieldAuthor:
-			if appendMode {
-				m.Creators = append(m.Creators, epub.ParseCreatorList(value)...)
-			} else {
-				m.Creators = epub.ParseCreatorList(value)
-			}
-		case epub.FieldTags:
-			if appendMode {
-				m.Subjects = append(m.Subjects, epub.SplitList(value, ",")...)
-			} else {
-				m.Subjects = epub.SplitList(value, ",")
-			}
-		case epub.FieldSeries:
-			m.Series = join(m.Series, value)
-		case epub.FieldSeriesIndex:
-			m.SeriesIndex = value
-		case epub.FieldDescription:
-			m.Description = join(m.Description, value)
-		case epub.FieldPublisher:
-			m.Publisher = join(m.Publisher, value)
-		case epub.FieldDate:
-			m.Date = join(m.Date, value)
-		case epub.FieldLanguage:
-			m.Language = join(m.Language, value)
-		case epub.FieldRights:
-			m.Rights = join(m.Rights, value)
-		case epub.FieldIdentifier:
-			m.Identifier = join(m.Identifier, value)
+		if updated, err := m.Apply(field, updates[field], appendMode); err == nil {
+			m = updated
 		}
 	}
 	return m

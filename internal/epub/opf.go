@@ -192,12 +192,7 @@ func (d *opfDocument) raw(i int) []byte {
 // the same precedence the previous reader had: name/content metas win over
 // property metas, and the EPUB 3 series collection wins over Calibre's tags.
 func (d *opfDocument) metadata() Metadata {
-	var (
-		identifiers []string
-		titles      []string
-		languages   []string
-	)
-	optional := make(map[string][]string)
+	byLocal := make(map[string][]string)
 	named := make(map[string]string)
 	valued := make(map[string][]string)
 
@@ -211,30 +206,13 @@ func (d *opfDocument) metadata() Metadata {
 				continue
 			}
 			valued[c.property] = append(valued[c.property], normalizeWhitespace(c.text))
-		case "identifier":
-			identifiers = append(identifiers, normalizeWhitespace(c.text))
-		case "title":
-			titles = append(titles, normalizeWhitespace(c.text))
-		case "language":
-			languages = append(languages, normalizeWhitespace(c.text))
 		default:
-			optional[c.local] = append(optional[c.local], normalizeWhitespace(c.text))
+			byLocal[c.local] = append(byLocal[c.local], normalizeWhitespace(c.text))
 		}
 	}
 
-	get := func(key string) []string {
-		switch key {
-		case "identifiers":
-			return identifiers
-		case "title":
-			return titles
-		case "language":
-			return languages
-		}
-		return optional[key]
-	}
-	first := func(key string) string {
-		if values := get(key); len(values) > 0 {
+	first := func(local string) string {
+		if values := byLocal[local]; len(values) > 0 {
 			return strings.TrimSpace(values[0])
 		}
 		return ""
@@ -250,7 +228,7 @@ func (d *opfDocument) metadata() Metadata {
 	}
 
 	var creators []Creator
-	for _, name := range get("creator") {
+	for _, name := range byLocal["creator"] {
 		if name = strings.TrimSpace(name); name != "" {
 			creators = append(creators, Creator{Name: name})
 		}
@@ -273,34 +251,40 @@ func (d *opfDocument) metadata() Metadata {
 		Title:       first("title"),
 		Subtitle:    subtitle,
 		Creators:    creators,
-		Subjects:    cleanList(get("subject")),
+		Subjects:    cleanList(byLocal["subject"]),
 		Description: first("description"),
 		Publisher:   first("publisher"),
 		Date:        first("date"),
 		Language:    first("language"),
 		Rights:      first("rights"),
-		Identifier:  first("identifiers"),
+		Identifier:  first("identifier"),
 		Series:      series,
 		SeriesIndex: seriesIndex,
 		Read:        ParseReadStatus(metaValue(readMetaName)),
 	}
 }
 
+// refinedValue returns the value of the first meta that refines id with the
+// given property.
+func (d *opfDocument) refinedValue(id, property string) string {
+	if id == "" {
+		return ""
+	}
+	for _, meta := range d.children {
+		if meta.local == "meta" && meta.property == property &&
+			strings.TrimPrefix(meta.refines, "#") == id {
+			return strings.TrimSpace(meta.text)
+		}
+	}
+	return ""
+}
+
 // refinedSubtitle returns the EPUB 3 subtitle: a title refined with the
 // title-type property set to "subtitle".
 func (d *opfDocument) refinedSubtitle() string {
 	for _, title := range d.children {
-		if title.local != "title" || title.id == "" {
-			continue
-		}
-		for _, meta := range d.children {
-			if meta.local != "meta" || meta.property != "title-type" {
-				continue
-			}
-			if strings.TrimPrefix(meta.refines, "#") == title.id &&
-				strings.EqualFold(strings.TrimSpace(meta.text), "subtitle") {
-				return strings.TrimSpace(title.text)
-			}
+		if title.local == "title" && d.titleIsSubtitle(title) {
+			return strings.TrimSpace(title.text)
 		}
 	}
 	return ""
@@ -316,61 +300,22 @@ func (d *opfDocument) seriesCollection() (name, position string, ok bool) {
 			continue
 		}
 		name = strings.TrimSpace(collection.text)
-		if name == "" {
-			continue
+		if name != "" && d.isSeriesCollection(collection) {
+			return name, d.refinedValue(collection.id, "group-position"), true
 		}
-		kind, groupPosition := "", ""
-		for _, meta := range d.children {
-			if collection.id == "" || strings.TrimPrefix(meta.refines, "#") != collection.id {
-				continue
-			}
-			switch meta.property {
-			case "collection-type":
-				kind = strings.TrimSpace(meta.text)
-			case "group-position":
-				groupPosition = strings.TrimSpace(meta.text)
-			}
-		}
-		if !strings.EqualFold(kind, "series") {
-			continue
-		}
-		return name, groupPosition, true
 	}
 	return "", "", false
 }
 
 // titleIsSubtitle reports whether a title element is refined as a subtitle.
 func (d *opfDocument) titleIsSubtitle(title opfChild) bool {
-	if title.id == "" {
-		return false
-	}
-	for _, meta := range d.children {
-		if meta.local != "meta" || meta.property != "title-type" {
-			continue
-		}
-		if strings.TrimPrefix(meta.refines, "#") == title.id &&
-			strings.EqualFold(strings.TrimSpace(meta.text), "subtitle") {
-			return true
-		}
-	}
-	return false
+	return strings.EqualFold(d.refinedValue(title.id, "title-type"), "subtitle")
 }
 
 // isSeriesCollection reports whether a belongs-to-collection meta is explicitly
 // typed as a series. Untyped collections are preserved.
 func (d *opfDocument) isSeriesCollection(collection opfChild) bool {
-	if collection.id == "" {
-		return false
-	}
-	for _, meta := range d.children {
-		if meta.local != "meta" || meta.property != "collection-type" {
-			continue
-		}
-		if strings.TrimPrefix(meta.refines, "#") == collection.id {
-			return strings.EqualFold(strings.TrimSpace(meta.text), "series")
-		}
-	}
-	return false
+	return strings.EqualFold(d.refinedValue(collection.id, "collection-type"), "series")
 }
 
 // normalizeWhitespace collapses leading, trailing, and repeated internal
@@ -444,6 +389,27 @@ func (e *opfEdit) setMetaName(name, value string) {
 	}
 }
 
+// dropAll removes every metadata child with the given local name.
+func (e *opfEdit) dropAll(local string) {
+	for i, c := range e.doc.children {
+		if c.local == local {
+			e.drop(i)
+		}
+	}
+}
+
+// replaceAll writes values as DC elements with the given local name, dropping
+// whatever the document had before. Empty values are skipped, so an empty list
+// removes the elements entirely.
+func (e *opfEdit) replaceAll(local string, values []string) {
+	e.dropAll(local)
+	for _, value := range values {
+		if value != "" {
+			e.add(e.doc.dcElement(local, "", value), true)
+		}
+	}
+}
+
 // editOPF applies the difference between the original and edited metadata to
 // the package document. Only changed fields are touched: untouched elements
 // keep their original bytes, including attributes, refinements and comments.
@@ -455,21 +421,9 @@ func editOPF(doc *opfDocument, old, new Metadata) ([]byte, error) {
 	epub2 := strings.HasPrefix(doc.version, "2")
 	children := doc.children
 
-	indices := func(local string) []int {
-		var out []int
-		for i, c := range children {
-			if c.local == local {
-				out = append(out, i)
-			}
-		}
-		return out
-	}
-
 	subtitleDirty := new.Subtitle != old.Subtitle
 	if new.Title != old.Title {
-		for _, i := range indices("title") {
-			e.drop(i)
-		}
+		e.dropAll("title")
 		subtitleDirty = true
 		if new.Title != "" {
 			e.add(doc.dcElement("title", "", new.Title), true)
@@ -497,31 +451,15 @@ func editOPF(doc *opfDocument, old, new Metadata) ([]byte, error) {
 	}
 
 	if names := new.CreatorNames(); !slices.Equal(names, old.CreatorNames()) {
-		for _, i := range indices("creator") {
-			e.drop(i)
-		}
-		for _, name := range names {
-			e.add(doc.dcElement("creator", "", name), true)
-		}
+		e.replaceAll("creator", names)
 	}
 	if !slices.Equal(new.Subjects, old.Subjects) {
-		for _, i := range indices("subject") {
-			e.drop(i)
-		}
-		for _, subject := range new.Subjects {
-			e.add(doc.dcElement("subject", "", subject), true)
-		}
+		e.replaceAll("subject", new.Subjects)
 	}
 
 	setOptional := func(local, oldValue, newValue string) {
-		if oldValue == newValue {
-			return
-		}
-		for _, i := range indices(local) {
-			e.drop(i)
-		}
-		if newValue != "" {
-			e.add(doc.dcElement(local, "", newValue), true)
+		if oldValue != newValue {
+			e.replaceAll(local, []string{newValue})
 		}
 	}
 	setOptional("description", old.Description, new.Description)
@@ -530,17 +468,10 @@ func editOPF(doc *opfDocument, old, new Metadata) ([]byte, error) {
 	setOptional("date", old.Date, new.Date)
 
 	if new.Language != old.Language {
-		for _, i := range indices("language") {
-			e.drop(i)
-		}
-		if new.Language != "" {
-			e.add(doc.dcElement("language", "", new.Language), true)
-		}
+		e.replaceAll("language", []string{new.Language})
 	}
 	if new.Identifier != old.Identifier {
-		for _, i := range indices("identifier") {
-			e.drop(i)
-		}
+		e.dropAll("identifier")
 		if new.Identifier != "" {
 			e.add(doc.dcElement("identifier", doc.uniqueIdentifier, new.Identifier), true)
 		}
@@ -633,7 +564,7 @@ func (e *opfEdit) render() []byte {
 	}
 
 	indent := doc.indent()
-	unit := append(append([]byte{}, indent...), ' ', ' ')
+	unit := append(bytes.Clone(indent), ' ', ' ')
 
 	var content bytes.Buffer
 	if len(items) > 0 {
@@ -649,17 +580,17 @@ func (e *opfEdit) render() []byte {
 		content.Write(indent)
 	}
 
+	if doc.metaSelfClosing && len(items) == 0 {
+		return doc.data
+	}
+
 	var out []byte
 	if doc.metaSelfClosing {
-		if len(items) == 0 {
-			out = append([]byte{}, doc.data...)
-		} else {
-			out = append(out, doc.data[:doc.metaStart]...)
-			out = append(out, openMetadataTag(doc.data[doc.metaStart:doc.metaOpenEnd])...)
-			out = append(out, content.Bytes()...)
-			out = append(out, "</metadata>"...)
-			out = append(out, doc.data[doc.metaOpenEnd:]...)
-		}
+		out = append(out, doc.data[:doc.metaStart]...)
+		out = append(out, openMetadataTag(doc.data[doc.metaStart:doc.metaOpenEnd])...)
+		out = append(out, content.Bytes()...)
+		out = append(out, "</metadata>"...)
+		out = append(out, doc.data[doc.metaOpenEnd:]...)
 	} else {
 		out = append(out, doc.data[:doc.metaOpenEnd]...)
 		out = append(out, content.Bytes()...)
@@ -709,7 +640,7 @@ func (d *opfDocument) dcElement(local, id, value string) string {
 	b.WriteString(local)
 	if id != "" {
 		b.WriteString(` id="`)
-		b.WriteString(escapeAttr(id))
+		b.WriteString(escapeXML(id))
 		b.WriteString(`"`)
 	}
 	b.WriteString(">")
@@ -732,8 +663,8 @@ func (d *opfDocument) metaElementName() string {
 
 // metaName renders a legacy name/content meta element.
 func (d *opfDocument) metaName(name, content string) string {
-	return "<" + d.metaElementName() + ` name="` + escapeAttr(name) +
-		`" content="` + escapeAttr(content) + `"/>`
+	return "<" + d.metaElementName() + ` name="` + escapeXML(name) +
+		`" content="` + escapeXML(content) + `"/>`
 }
 
 // metaProperty renders a property meta element with optional id and refines.
@@ -744,41 +675,21 @@ func (d *opfDocument) metaProperty(id, refines, property, value string) string {
 	b.WriteString(name)
 	if id != "" {
 		b.WriteString(` id="`)
-		b.WriteString(escapeAttr(id))
+		b.WriteString(escapeXML(id))
 		b.WriteString(`"`)
 	}
 	if refines != "" {
 		b.WriteString(` refines="`)
-		b.WriteString(escapeAttr(refines))
+		b.WriteString(escapeXML(refines))
 		b.WriteString(`"`)
 	}
 	b.WriteString(` property="`)
-	b.WriteString(escapeAttr(property))
+	b.WriteString(escapeXML(property))
 	b.WriteString(`">`)
 	b.WriteString(escapeXML(value))
 	b.WriteString("</")
 	b.WriteString(name)
 	b.WriteString(">")
-	return b.String()
-}
-
-// escapeAttr escapes a value for use inside a double-quoted attribute.
-func escapeAttr(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch r {
-		case '&':
-			b.WriteString("&amp;")
-		case '<':
-			b.WriteString("&lt;")
-		case '>':
-			b.WriteString("&gt;")
-		case '"':
-			b.WriteString("&quot;")
-		default:
-			b.WriteRune(r)
-		}
-	}
 	return b.String()
 }
 
@@ -895,11 +806,11 @@ func findTagAttr(tag []byte, name string) (start, end int, ok bool) {
 func setTagAttr(tag []byte, name, value string) []byte {
 	start, end, ok := findTagAttr(tag, name)
 	if !ok {
-		return insertTagAttr(tag, name+`="`+escapeAttr(value)+`"`)
+		return insertTagAttr(tag, name+`="`+escapeXML(value)+`"`)
 	}
 	out := make([]byte, 0, len(tag)+len(value))
 	out = append(out, tag[:start]...)
-	out = append(out, escapeAttr(value)...)
+	out = append(out, escapeXML(value)...)
 	out = append(out, tag[end:]...)
 	return out
 }

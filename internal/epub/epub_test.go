@@ -140,6 +140,14 @@ func zipEntry(t *testing.T, path, suffix string) []byte {
 	return nil
 }
 
+// setField applies a single field edit to a book.
+func setField(t *testing.T, path string, field Field, value string) {
+	t.Helper()
+	if err := Update(path, func(p *Package) error { return p.Set(field, value) }); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReadMetadata(t *testing.T) {
 	path := makeEPUB(t)
 	m, err := ReadMetadata(path)
@@ -221,11 +229,7 @@ func TestReadMetadataIgnoresUnrelatedArchiveDamage(t *testing.T) {
 
 func TestReadStatusRoundTrip(t *testing.T) {
 	path := makeEPUB(t)
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldRead, "yes")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldRead, "yes")
 
 	m, err := ReadMetadata(path)
 	if err != nil {
@@ -242,11 +246,7 @@ func TestReadStatusRoundTrip(t *testing.T) {
 		t.Errorf("package does not declare the shelf prefix:\n%s", opf)
 	}
 
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldRead, "no")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldRead, "no")
 	m, err = ReadMetadata(path)
 	if err != nil {
 		t.Fatal(err)
@@ -263,11 +263,7 @@ func TestReadStatusRoundTrip(t *testing.T) {
 // meta form for the custom read marker.
 func TestReadStatusEPUB2(t *testing.T) {
 	path := makeEPUB2(t)
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldRead, "yes")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldRead, "yes")
 
 	m, err := ReadMetadata(path)
 	if err != nil {
@@ -342,11 +338,7 @@ func TestSeriesRoundTrip(t *testing.T) {
 	}
 
 	// Clearing the series removes the meta entries.
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldSeries, "")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldSeries, "")
 	got, _ := ReadMetadata(path)
 	if got.Series != "" || got.SeriesIndex != "3" {
 		t.Errorf("clearing series changed the index: %+v", got)
@@ -386,11 +378,7 @@ func TestAppendAuthors(t *testing.T) {
 
 func TestClearField(t *testing.T) {
 	path := makeEPUB(t)
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldPublisher, "")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldPublisher, "")
 	m, _ := ReadMetadata(path)
 	if m.Publisher != "" {
 		t.Errorf("Publisher = %q, want empty", m.Publisher)
@@ -425,11 +413,7 @@ func TestPermissionPreserved(t *testing.T) {
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldTitle, "Renamed")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldTitle, "Renamed")
 	st, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -466,11 +450,7 @@ func TestSaveKeepsOtherEntriesVerbatim(t *testing.T) {
 
 	beforeOPF := zipEntry(t, path, ".opf")
 
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldPublisher, "Orbit")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldPublisher, "Orbit")
 
 	after, err := os.ReadFile(path)
 	if err != nil {
@@ -535,11 +515,7 @@ func TestCreatorAttributesPreserved(t *testing.T) {
 	opf = strings.Replace(opf, "<!-- extra -->", `<meta property="file-as" refines="#author">Le Guin, Ursula K.</meta>`, 1)
 	path := writeEPUB(t, opf)
 
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldPublisher, "Orbit")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldPublisher, "Orbit")
 	saved := zipEntry(t, path, ".opf")
 	if !bytes.Contains(saved, []byte(`opf:role="aut" opf:file-as="Le Guin, Ursula K."`)) {
 		t.Errorf("creator attributes were lost:\n%s", saved)
@@ -548,11 +524,7 @@ func TestCreatorAttributesPreserved(t *testing.T) {
 		t.Errorf("creator refinement was lost:\n%s", saved)
 	}
 
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldAuthor, "Jane Doe")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldAuthor, "Jane Doe")
 	saved = zipEntry(t, path, ".opf")
 	if bytes.Contains(saved, []byte(`opf:role="aut"`)) {
 		t.Errorf("stale creator attributes remain:\n%s", saved)
@@ -639,21 +611,13 @@ func TestTitleRefinements(t *testing.T) {
 		`<meta property="file-as" refines="#title">Left Hand of Darkness, The</meta>`+
 			`<meta property="title-type" refines="#title">main</meta>`)
 
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldPublisher, "Orbit")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldPublisher, "Orbit")
 	opf := zipEntry(t, path, ".opf")
 	if !bytes.Contains(opf, []byte(`refines="#title"`)) {
 		t.Errorf("title refinement was lost:\n%s", opf)
 	}
 
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldTitle, "There and Back Again")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldTitle, "There and Back Again")
 	opf = zipEntry(t, path, ".opf")
 	if bytes.Contains(opf, []byte(`refines="#title"`)) {
 		t.Errorf("stale title refinement remains:\n%s", opf)
@@ -669,21 +633,13 @@ func TestTitleRefinements(t *testing.T) {
 func TestSubjectRefinements(t *testing.T) {
 	path := makeEPUBWith(t, `<meta property="authority" refines="#sf">BISAC</meta>`)
 
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldPublisher, "Orbit")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldPublisher, "Orbit")
 	opf := zipEntry(t, path, ".opf")
 	if !bytes.Contains(opf, []byte(`refines="#sf"`)) {
 		t.Errorf("subject refinement was lost:\n%s", opf)
 	}
 
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldTags, "fantasy, classic")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldTags, "fantasy, classic")
 	opf = zipEntry(t, path, ".opf")
 	if bytes.Contains(opf, []byte(`refines="#sf"`)) {
 		t.Errorf("stale subject refinement remains:\n%s", opf)
@@ -709,11 +665,7 @@ func TestSetCollectionPreserved(t *testing.T) {
 		t.Errorf("untyped collection read as series: %q", before.Series)
 	}
 
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldSeries, "Foundation")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldSeries, "Foundation")
 	opf := zipEntry(t, path, ".opf")
 	for _, want := range []string{">The Boxed Set<", ">Best Novels of All Time<"} {
 		if !bytes.Contains(opf, []byte(want)) {
@@ -751,11 +703,7 @@ func TestReadSeriesCollection(t *testing.T) {
 // that the EPUB 3 dcterms:modified meta is stripped.
 func TestSubtitleEPUB2(t *testing.T) {
 	path := makeEPUB2(t)
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldSubtitle, "A Novel")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldSubtitle, "A Novel")
 	m, err := ReadMetadata(path)
 	if err != nil {
 		t.Fatal(err)
@@ -780,11 +728,7 @@ func TestSubtitleEPUB2(t *testing.T) {
 func TestIdentifierSyncsNCX(t *testing.T) {
 	path := makeEPUB2(t)
 	const isbn = "9780141439518"
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldIdentifier, isbn)
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldIdentifier, isbn)
 	ncx := zipEntry(t, path, ".ncx")
 	if !bytes.Contains(ncx, []byte(`content="`+isbn+`"`)) {
 		t.Errorf("NCX dtb:uid was not updated:\n%s", ncx)
@@ -798,11 +742,7 @@ func TestIdentifierSyncsNCX(t *testing.T) {
 // first, stored, and without an extra field.
 func TestArchiveMimetype(t *testing.T) {
 	path := makeEPUB2(t)
-	if err := Update(path, func(p *Package) error {
-		return p.Set(FieldTitle, "Renamed")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	setField(t, path, FieldTitle, "Renamed")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -859,11 +799,7 @@ func TestMetaKeyCollisionsAreReadable(t *testing.T) {
 func TestSubtitleEPUB3(t *testing.T) {
 	path := makeEPUB(t)
 	for _, subtitle := range []string{"A Novel", "A Gothic Novel"} {
-		if err := Update(path, func(p *Package) error {
-			return p.Set(FieldSubtitle, subtitle)
-		}); err != nil {
-			t.Fatal(err)
-		}
+		setField(t, path, FieldSubtitle, subtitle)
 		m, err := ReadMetadata(path)
 		if err != nil {
 			t.Fatal(err)
@@ -885,5 +821,53 @@ func TestSubtitleEPUB3(t *testing.T) {
 	}
 	if !bytes.Contains(opf, []byte("dcterms:modified")) {
 		t.Errorf("EPUB 3 package lost dcterms:modified:\n%s", opf)
+	}
+}
+
+// TestEscapedValuesRoundTrip checks that text and attribute values survive
+// escaping in both directions.
+func TestEscapedValuesRoundTrip(t *testing.T) {
+	const (
+		title  = `A & B: "Quotes" <Tags>`
+		series = `S & "T" <U>`
+	)
+	path := makeEPUB(t)
+	if err := Update(path, func(p *Package) error {
+		if err := p.Set(FieldTitle, title); err != nil {
+			return err
+		}
+		return p.Set(FieldSeries, series)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := ReadMetadata(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Title != title {
+		t.Errorf("Title = %q, want %q", m.Title, title)
+	}
+	if m.Series != series {
+		t.Errorf("Series = %q, want %q", m.Series, series)
+	}
+	if opf := zipEntry(t, path, ".opf"); !bytes.Contains(opf, []byte("A &amp; B")) {
+		t.Errorf("title was not escaped in the package:\n%s", opf)
+	}
+
+	// EPUB 2 stores the subtitle in a content attribute, so it exercises
+	// attribute unescaping on the read path.
+	path = makeEPUB2(t)
+	if err := Update(path, func(p *Package) error {
+		return p.Set(FieldSubtitle, series)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m, err = ReadMetadata(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Subtitle != series {
+		t.Errorf("Subtitle = %q, want %q", m.Subtitle, series)
 	}
 }
