@@ -244,8 +244,8 @@ This sends the selected book's metadata to Google Books. Set
 `429` responses.
 
 In the editor, `enter` saves and `esc` cancels. The description uses a
-multi-line box: `enter` inserts a newline and `ctrl+s` saves. Several authors
-can be added at once separated by `;`.
+multi-line box: long text wraps inside the box, `enter` inserts a newline and
+`ctrl+s` saves. Several authors can be added at once separated by `;`.
 
 ### Autocomplete
 

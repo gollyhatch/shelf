@@ -962,3 +962,54 @@ fn wrapped_description_continuation_aligns() {
         rows[row + 1].trim()
     );
 }
+
+fn edit_description(text: &str) -> App {
+    let mut book =
+        entry("dune.epub", "Dune", "Frank Herbert", "Dune", "1", true);
+    book.metadata.description = text.into();
+    let mut app = app_with(vec![book], options());
+    app.pane = Pane::Detail;
+    let at = app
+        .rows
+        .iter()
+        .position(|row| row.field == Field::Description)
+        .expect("description row");
+    app.row_idx = at;
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.mode, Mode::Edit);
+    assert!(app.using_area, "descriptions use the multi-line editor");
+    app
+}
+
+/// The rendered rows of the open editor, below its "Edit <field>" label.
+fn editor_box(view: &str) -> String {
+    view.lines()
+        .skip_while(|line| !line.contains("Edit description"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn editor_shows_a_wrapped_description() {
+    let mut app = edit_description(
+        "On the desert planet Arrakis, Paul Atreides becomes the figure at \
+         the center of a galactic struggle between the noble house Atreides \
+         and the brutal Harkonnen, with the fate of the spice melange and the \
+         Fremen hanging on his choices.",
+    );
+    let view = render(&mut app, 100, 30);
+    let editor = editor_box(&view);
+    for word in ["Arrakis", "galactic", "Harkonnen", "melange", "choices."] {
+        assert!(editor.contains(word), "{word} not in the editor:\n{editor}");
+    }
+}
+
+#[test]
+fn editor_keeps_a_long_description_end_in_view() {
+    let text = format!("{}TAILWORD", "spice ".repeat(200));
+    let mut app = edit_description(&text);
+    let view = render(&mut app, 100, 30);
+    let editor = editor_box(&view);
+    assert!(editor.contains("TAILWORD"), "tail not in the editor:\n{editor}");
+    assert_eq!(app.area.value(), text);
+}

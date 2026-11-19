@@ -860,27 +860,24 @@ impl App {
 
     fn area_lines(&self, width: usize) -> Vec<Line<'static>> {
         let visible = clamp(self.height / 3, 3, 8);
-        let (cursor_row, cursor_col) = self.area.cursor();
-        let rows = self.area.lines();
-        let top = cursor_row.saturating_sub(visible.saturating_sub(1));
+        let cursor = self.area.cursor();
+        let rows = area_rows(self.area.lines(), cursor, width);
+        let at = area_cursor_row(&rows, cursor);
+        let top = at
+            .saturating_sub(visible.saturating_sub(1))
+            .min(rows.len().saturating_sub(visible));
         let mut out = Vec::new();
-        for (r, line) in rows.iter().enumerate().skip(top).take(visible) {
+        for (i, row) in rows.iter().enumerate().skip(top).take(visible) {
             let mut spans = Vec::new();
-            for (c, ch) in line.iter().enumerate() {
-                let style = if r == cursor_row && c == cursor_col {
+            for (n, ch) in row.chars.iter().enumerate() {
+                let style = if i == at && row.start + n == cursor.1 {
                     self.styles.value.add_modifier(Modifier::REVERSED)
                 } else {
                     self.styles.value
                 };
-                if spans_width(&spans)
-                    + UnicodeWidthChar::width(*ch).unwrap_or(0)
-                    > width
-                {
-                    break;
-                }
                 spans.push(Span::styled(ch.to_string(), style));
             }
-            if r == cursor_row && cursor_col >= line.len() {
+            if i == at && cursor.1 == row.start + row.chars.len() {
                 spans.push(Span::styled(
                     " ",
                     self.styles.value.add_modifier(Modifier::REVERSED),
@@ -1349,18 +1346,93 @@ impl App {
                 ("q", "quit"),
             ]
         };
-        frame.render_widget(
-            Paragraph::new(fit_bindings(&self.styles, self.width, &bindings)),
-            area,
-        );
-    }
+    frame.render_widget(
+        Paragraph::new(fit_bindings(&self.styles, self.width, &bindings)),
+        area,
+    );
+}
 }
 
-fn spans_width(spans: &[Span<'_>]) -> usize {
-    spans
-        .iter()
-        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
-        .sum()
+/// One display row of the multi-line editor: the logical line it comes from,
+/// the column it starts at, and the characters that fit the box width.
+struct AreaRow {
+    row: usize,
+    start: usize,
+    chars: Vec<char>,
+}
+
+/// Soft-wrap the editor's logical lines so a long paragraph stays visible.
+/// Rows break after the last space that fits, or mid-word when a word is wider
+/// than the box. Every character is kept, so the editor shows exactly what it
+/// will save.
+fn area_rows(
+    lines: &[Vec<char>],
+    cursor: (usize, usize),
+    width: usize,
+) -> Vec<AreaRow> {
+    let width = width.max(1);
+    let width_of = |chars: &[char]| {
+        chars
+            .iter()
+            .map(|c| UnicodeWidthChar::width(*c).unwrap_or(0))
+            .sum::<usize>()
+    };
+    let mut rows = Vec::new();
+    for (r, line) in lines.iter().enumerate() {
+        let mut start = 0;
+        loop {
+            let mut used = 0;
+            let mut end = start;
+            while end < line.len() {
+                let w = UnicodeWidthChar::width(line[end]).unwrap_or(0);
+                if used + w > width {
+                    break;
+                }
+                used += w;
+                end += 1;
+            }
+            if end == start && start < line.len() {
+                // A character wider than the box still needs a row of its own.
+                end = start + 1;
+            }
+            if end < line.len() {
+                if let Some(space) = (start..end).rev().find(|&i| line[i] == ' ')
+                {
+                    end = space + 1;
+                }
+            }
+            rows.push(AreaRow {
+                row: r,
+                start,
+                chars: line[start..end].to_vec(),
+            });
+            start = end;
+            if start >= line.len() {
+                break;
+            }
+        }
+        // A cursor that sits past a full row needs a cell of its own.
+        if r == cursor.0
+            && cursor.1 == line.len()
+            && rows
+                .last()
+                .is_some_and(|row| width_of(&row.chars) >= width)
+        {
+            rows.push(AreaRow {
+                row: r,
+                start: line.len(),
+                chars: Vec::new(),
+            });
+        }
+    }
+    rows
+}
+
+/// Index of the display row that holds the cursor.
+fn area_cursor_row(rows: &[AreaRow], cursor: (usize, usize)) -> usize {
+    rows.iter()
+        .rposition(|row| row.row == cursor.0 && row.start <= cursor.1)
+        .unwrap_or(0)
 }
 
 fn book_count(n: usize) -> String {
@@ -1478,5 +1550,54 @@ fn online_value(value: &str) -> String {
         "(none)".into()
     } else {
         value.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn area_text(
+        lines: &[&str],
+        cursor: (usize, usize),
+        width: usize,
+    ) -> Vec<String> {
+        let lines: Vec<Vec<char>> =
+            lines.iter().map(|line| line.chars().collect()).collect();
+        area_rows(&lines, cursor, width)
+            .into_iter()
+            .map(|row| row.chars.iter().collect())
+            .collect()
+    }
+
+    #[test]
+    fn wraps_a_long_line_at_spaces() {
+        assert_eq!(
+            area_text(&["one two three"], (0, 13), 7),
+            ["one ", "two ", "three"]
+        );
+    }
+
+    #[test]
+    fn wraps_a_word_wider_than_the_box() {
+        assert_eq!(
+            area_text(&["abcdefghij"], (0, 10), 4),
+            ["abcd", "efgh", "ij"]
+        );
+    }
+
+    #[test]
+    fn keeps_one_row_per_empty_line() {
+        assert_eq!(area_text(&["", "x"], (1, 1), 4), ["", "x"]);
+    }
+
+    #[test]
+    fn cursor_past_a_full_row_gets_its_own_row() {
+        let lines = vec!["abcdefgh".chars().collect::<Vec<_>>()];
+        let wrapped = area_rows(&lines, (0, 8), 4);
+        assert_eq!(wrapped.len(), 3);
+        assert_eq!(area_cursor_row(&wrapped, (0, 8)), 2);
+        assert_eq!(area_cursor_row(&wrapped, (0, 5)), 1);
+        assert_eq!(area_cursor_row(&wrapped, (0, 0)), 0);
     }
 }
