@@ -99,6 +99,14 @@ impl App {
         let mut used =
             7 + 2 + UnicodeWidthStr::width(spans[2].content.as_ref());
 
+        if let Some(idx) = self.active_shelf_idx() {
+            let label = format!(" · {}", self.shelves[idx].name);
+            let badge_width = UnicodeWidthStr::width(label.as_str());
+            if used + badge_width <= self.width {
+                spans.push(Span::styled(label, self.styles.header_info));
+                used += badge_width;
+            }
+        }
         if self.read_filter != ReadFilter::All {
             let label = if self.read_filter == ReadFilter::Unread {
                 " · unread only"
@@ -243,6 +251,10 @@ impl App {
         }
         if self.online_open {
             self.draw_online(frame, area);
+            return;
+        }
+        if self.shelf_open {
+            self.draw_shelf(frame, area);
             return;
         }
         if area.height == 0 {
@@ -1082,6 +1094,68 @@ impl App {
         );
     }
 
+    fn draw_shelf(&self, frame: &mut Frame, area: Rect) {
+        let height = self.body_height();
+        if height < 4 || self.width < 16 {
+            return;
+        }
+        let rows = self.shelf_rows();
+        if rows.is_empty() {
+            return;
+        }
+        let page = self.shelf_page_size();
+        if page == 0 {
+            return;
+        }
+        let content_w = clamp(self.width.saturating_sub(6), 20, 72);
+        let top = clamp(
+            self.shelf_idx.saturating_sub(page.saturating_sub(1)),
+            0,
+            rows.len().saturating_sub(page),
+        );
+        let title = if self.shelf_add {
+            "Add to shelf"
+        } else {
+            "Shelf"
+        };
+        let mut title = title.to_owned();
+        if rows.len() > page {
+            let end = (top + page).min(rows.len());
+            title = format!("{title}  {}–{} of {}", top + 1, end, rows.len());
+        }
+        let current = self.active_shelf_idx();
+        let mut lines = vec![Line::from(Span::styled(
+            pad_right(&ellipsis(&title, content_w), content_w),
+            self.styles.help_title,
+        ))];
+        for (pos, &i) in rows.iter().enumerate().skip(top).take(page) {
+            let shelf = &self.shelves[i];
+            let count = self.shelf_counts.get(i).copied().unwrap_or(0);
+            let mut label = if shelf.query.is_empty() {
+                format!("  {}  ({count})", shelf.name)
+            } else {
+                format!("  {}  ({count})  {}", shelf.name, shelf.query)
+            };
+            if current == Some(i) {
+                label.push_str("  ✓");
+            }
+            let plain = pad_right(&ellipsis(&label, content_w), content_w);
+            let style = if pos == self.shelf_idx {
+                self.styles.row_sel
+            } else {
+                self.styles.value
+            };
+            lines.push(Line::from(Span::styled(plain, style)));
+        }
+        self.draw_dialog(
+            frame,
+            area,
+            content_w,
+            lines,
+            self.styles.border_focused,
+        );
+    }
+
     fn draw_confirm(&self, frame: &mut Frame, area: Rect) {
         let height = self.body_height();
         if height == 0 {
@@ -1299,6 +1373,8 @@ impl App {
             vec![("↑↓", "choose"), ("enter", "apply"), ("esc", "cancel")]
         } else if self.theme_open {
             vec![("↑↓", "preview"), ("enter", "apply"), ("esc", "cancel")]
+        } else if self.shelf_open {
+            vec![("↑↓", "choose"), ("enter", "apply"), ("esc", "cancel")]
         } else if self.online_open {
             vec![
                 ("space", "toggle"),

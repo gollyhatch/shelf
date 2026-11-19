@@ -97,7 +97,7 @@ fn parse_search_clause(term: &str) -> SearchClause {
 }
 
 /// Peel a comparison operator from a field value.
-fn split_comparison(value: &str) -> (&str, &str) {
+pub(crate) fn split_comparison(value: &str) -> (&str, &str) {
     for candidate in [">=", "<=", "!=", "=", ">", "<"] {
         if let Some(rest) = value.strip_prefix(candidate) {
             return (candidate, rest.trim());

@@ -6,6 +6,7 @@ mod docs;
 mod list_get;
 mod rename_repair;
 mod set_modify;
+mod shelves;
 mod stats;
 
 use std::io::Write;
@@ -32,10 +33,15 @@ Batch edits are available as subcommands and only change the fields you name;
 everything else in the package document, including Calibre series information
 and cover metadata, is preserved.
 
+Shelves are saved search queries over that metadata, declared in the config
+file. The shelves commands only read them: editing commands still take paths.
+
   shelf                          browse the library
   shelf ~/books                  browse a shelf
   shelf edit dune.epub           edit a single book
   shelf list --json ~/books      inspect a shelf
+  shelf shelves ~/books          count the books on each shelf
+  shelf list --shelf unread ~/books  only books on one shelf
   shelf set -a 'Frank Herbert' dune.epub
   shelf set --series Dune --series-index 1 dune.epub
   shelf modify --title -e 'Dune' --replacement 'DUNE' dune.epub
@@ -89,6 +95,8 @@ enum Command {
     /// Check EPUB metadata and archive structure
     #[command(alias = "doctor")]
     Check(check::CheckArgs),
+    /// List configured shelves and their book counts
+    Shelves(shelves::ShelvesArgs),
     /// Print a shell completion script
     Completion(docs::CompletionArgs),
     /// Print or generate man pages
@@ -246,7 +254,7 @@ fn execute(cli: Cli) -> Result<i32> {
     let default_dir = cfg.library_dir(".").to_owned();
 
     match cli.command {
-        Some(Command::List(args)) => list_get::list(args, &default_dir),
+        Some(Command::List(args)) => list_get::list(args, &cfg, &default_dir),
         Some(Command::Get(args)) => list_get::get(args, &default_dir),
         Some(Command::Set(args)) => set_modify::set(args, &default_dir),
         Some(Command::Modify(args)) => set_modify::modify(args, &default_dir),
@@ -267,6 +275,9 @@ fn execute(cli: Cli) -> Result<i32> {
         }
         Some(Command::Stats(args)) => stats::stats(args, &default_dir),
         Some(Command::Check(args)) => check::check(args, &default_dir),
+        Some(Command::Shelves(args)) => {
+            shelves::shelves(args, &cfg, &default_dir)
+        }
         Some(Command::Completion(args)) => docs::completion(args),
         Some(Command::Man(args)) => docs::man(args),
         None => {
@@ -299,6 +310,7 @@ fn run_options(cfg: &Config) -> tui::RunOptions {
         search_url: cfg.search_url.clone(),
         rename: NameRule::new(cfg.rename_format.clone(), slugify),
         move_rule: rename::move_rule(&cfg.rename_format, slugify),
+        shelves: crate::shelves::catalog(cfg),
     }
 }
 

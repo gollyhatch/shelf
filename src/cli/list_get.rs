@@ -8,6 +8,7 @@ use clap::Args;
 use serde::Serialize;
 
 use super::{TargetArgs, field_names};
+use crate::config::Config;
 use crate::epub::Field;
 use crate::library;
 
@@ -16,6 +17,10 @@ pub struct ListArgs {
     /// output machine readable JSON
     #[arg(long)]
     pub json: bool,
+
+    /// only books on this configured shelf
+    #[arg(long, value_name = "NAME")]
+    pub shelf: Option<String>,
 
     #[command(flatten)]
     pub target: TargetArgs,
@@ -36,9 +41,22 @@ pub struct GetArgs {
     pub paths: Vec<PathBuf>,
 }
 
-pub fn list(args: ListArgs, default_dir: &str) -> Result<i32> {
+pub fn list(args: ListArgs, cfg: &Config, default_dir: &str) -> Result<i32> {
     let paths = args.target.expand(default_dir)?;
-    let entries = library::load(&paths);
+    let mut entries = library::load(&paths);
+    if let Some(name) = &args.shelf {
+        let query = match cfg.shelves.get(name) {
+            Some(query) => query.clone(),
+            None if cfg.shelves.is_empty() => {
+                bail!("unknown shelf {name:?} (no shelves configured)")
+            }
+            None => bail!(
+                "unknown shelf {name:?} (configured: {})",
+                cfg.shelves.keys().cloned().collect::<Vec<_>>().join(", ")
+            ),
+        };
+        entries.retain(|entry| crate::search::entry_matches(entry, &query));
+    }
     if args.json {
         super::write_json(&entries.iter().map(json_entry).collect::<Vec<_>>())?;
         return Ok(0);

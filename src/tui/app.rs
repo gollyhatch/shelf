@@ -12,7 +12,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::RunOptions;
 use super::editor::{Input, TextArea};
 use super::help::HELP_ENTRIES;
-use super::search::entry_matches;
 use super::sort::{SORT_MODES, SortMode, less_entry, parse_sort_spec};
 use super::theme::{
     DEFAULT_THEME, Styles, ThemeChoice, catalog, load as load_theme,
@@ -21,6 +20,8 @@ use crate::epub::{self, Field, Metadata, Package};
 use crate::library::{self, Entry};
 use crate::online;
 use crate::rename::expand_search_url;
+use crate::search::entry_matches;
+use crate::shelves::{self, Shelf};
 
 /// How many completion candidates fit under the editor input.
 pub(crate) const MAX_SUGGESTIONS: usize = 5;
@@ -228,6 +229,13 @@ pub(crate) struct App {
     pub themes: Vec<ThemeChoice>,
     theme_before: Option<(String, Styles)>,
 
+    /// Named shelves, with the synthetic "All books" row first.
+    pub shelves: Vec<Shelf>,
+    pub shelf_open: bool,
+    pub shelf_add: bool,
+    pub shelf_idx: usize,
+    pub shelf_counts: Vec<usize>,
+
     pub suggestions: Vec<String>,
     pub suggestion_index: usize,
     pub show_suggestions: bool,
@@ -290,6 +298,11 @@ impl App {
         let client = online::Client::new(options.google_books_api_key.clone());
         let loaded_count = entries.as_ref().map_or(0, Vec::len);
         let library_path = options.library.clone();
+        let mut shelves = vec![Shelf {
+            name: "All books".to_owned(),
+            query: String::new(),
+        }];
+        shelves.extend(options.shelves.clone());
         let mut app = Self {
             dir,
             options,
@@ -326,6 +339,11 @@ impl App {
             theme_idx: 0,
             themes: Vec::new(),
             theme_before: None,
+            shelves,
+            shelf_open: false,
+            shelf_add: false,
+            shelf_idx: 0,
+            shelf_counts: Vec::new(),
             suggestions: Vec::new(),
             suggestion_index: 0,
             show_suggestions: false,
@@ -424,6 +442,17 @@ impl App {
             self.set_status("no readable books selected", StatusKind::Err);
             return;
         }
+        self.start_bulk_paths(paths, field, value, add);
+    }
+
+    /// Save one field on an explicit set of books, reporting bulk progress.
+    fn start_bulk_paths(
+        &mut self,
+        paths: Vec<PathBuf>,
+        field: Field,
+        value: String,
+        add: bool,
+    ) {
         self.saving = true;
         self.set_status(&format!("saving 1/{}", paths.len()), StatusKind::Info);
         let tx = self.tx.clone();
@@ -1624,6 +1653,181 @@ impl App {
         self.preview_theme();
     }
 
+    // ---------- shelves ----------
+
+    /// The configured shelf whose query equals the current filter.
+    pub(crate) fn active_shelf_idx(&self) -> Option<usize> {
+        self.shelves.iter().position(|shelf| {
+            !shelf.query.is_empty()
+                && shelf.query.trim().eq_ignore_ascii_case(self.filter.trim())
+        })
+    }
+
+    /// The shelf indices the open picker shows. The add picker lists only
+    /// shelves whose query is one tag clause, since those are the only ones it
+    /// can write.
+    pub(crate) fn shelf_rows(&self) -> Vec<usize> {
+        if self.shelf_add {
+            (0..self.shelves.len())
+                .filter(|&i| {
+                    shelves::membership_tag(&self.shelves[i].query).is_some()
+                })
+                .collect()
+        } else {
+            (0..self.shelves.len()).collect()
+        }
+    }
+
+    fn select_shelf(&mut self, idx: usize) {
+        let Some(shelf) = self.shelves.get(idx).cloned() else {
+            return;
+        };
+        self.read_filter = ReadFilter::All;
+        self.search.set_value(&shelf.query);
+        self.set_filter(&shelf.query);
+    }
+
+    fn refresh_shelf_counts(&mut self) {
+        self.shelf_counts = self
+            .shelves
+            .iter()
+            .map(|shelf| shelves::count(&self.entries, &shelf.query))
+            .collect();
+    }
+
+    fn open_shelf(&mut self, add: bool) {
+        if self.shelf_open
+            || self.theme_open
+            || self.sort_open
+            || self.help_open
+            || self.confirm_delete
+            || self.online_open
+            || self.mode != Mode::Browse
+            || self.searching
+            || self.saving
+            || self.deleting
+        {
+            return;
+        }
+        if add {
+            let writable = self
+                .shelves
+                .iter()
+                .any(|shelf| shelves::membership_tag(&shelf.query).is_some());
+            if !writable {
+                self.set_status(
+                    "no tag shelves configured (add e.g. fantasy = \"tag:fantasy\")",
+                    StatusKind::Err,
+                );
+                return;
+            }
+            if self.delete_targets().is_empty() {
+                self.set_status("no books selected", StatusKind::Err);
+                return;
+            }
+            self.shelf_idx = 0;
+        } else {
+            if self.shelves.len() <= 1 {
+                self.set_status(
+                    "no shelves configured (add a [shelves] table to the config file)",
+                    StatusKind::Err,
+                );
+                return;
+            }
+            self.shelf_idx = self.active_shelf_idx().unwrap_or(0);
+        }
+        self.shelf_add = add;
+        self.refresh_shelf_counts();
+        self.shelf_open = true;
+        self.status.clear();
+    }
+
+    pub(crate) fn shelf_page_size(&self) -> usize {
+        let height = self.body_height();
+        if height < 4 {
+            return 0;
+        }
+        height - 3
+    }
+
+    fn update_shelf(&mut self, key: KeyEvent) {
+        let page = self.shelf_page_size().max(1) as isize;
+        let rows = self.shelf_rows();
+        let last = rows.len().saturating_sub(1);
+        match key_name(&key).as_str() {
+            "esc" | "q" | "ctrl+c" => self.shelf_open = false,
+            "enter" => {
+                self.shelf_open = false;
+                if let Some(&target) = rows.get(self.shelf_idx) {
+                    if self.shelf_add {
+                        self.add_to_shelf(target);
+                    } else {
+                        self.select_shelf(target);
+                    }
+                }
+            }
+            "up" | "k" => {
+                self.shelf_idx = clamp(
+                    (self.shelf_idx as isize - 1).max(0) as usize,
+                    0,
+                    last,
+                )
+            }
+            "down" | "j" => {
+                self.shelf_idx =
+                    clamp((self.shelf_idx as isize + 1) as usize, 0, last)
+            }
+            "pgup" | "ctrl+u" => {
+                self.shelf_idx = clamp(
+                    (self.shelf_idx as isize - page).max(0) as usize,
+                    0,
+                    last,
+                )
+            }
+            "pgdown" | "ctrl+d" => {
+                self.shelf_idx =
+                    clamp((self.shelf_idx as isize + page) as usize, 0, last)
+            }
+            "home" | "g" => self.shelf_idx = 0,
+            "end" | "G" => self.shelf_idx = last,
+            _ => {}
+        }
+    }
+
+    fn add_to_shelf(&mut self, idx: usize) {
+        let Some(shelf) = self.shelves.get(idx).cloned() else {
+            return;
+        };
+        let Some(tag) = shelves::membership_tag(&shelf.query) else {
+            self.set_status(
+                &format!("{:?} is not a tag shelf", shelf.name),
+                StatusKind::Err,
+            );
+            return;
+        };
+        let pending: Vec<PathBuf> = self
+            .delete_targets()
+            .into_iter()
+            .filter(|entry| entry.error.is_none())
+            .filter(|entry| {
+                !entry
+                    .metadata
+                    .subjects
+                    .iter()
+                    .any(|subject| subject.eq_ignore_ascii_case(&tag))
+            })
+            .map(|entry| entry.path)
+            .collect();
+        if pending.is_empty() {
+            self.set_status(
+                &format!("already on {:?}", shelf.name),
+                StatusKind::Info,
+            );
+            return;
+        }
+        self.start_bulk_paths(pending, Field::Tags, tag, true);
+    }
+
     fn apply_sort_setting(&mut self, value: &str) -> Result<()> {
         if value.trim().is_empty() {
             return Ok(());
@@ -1749,6 +1953,10 @@ impl App {
             self.update_theme(key);
             return;
         }
+        if self.shelf_open {
+            self.update_shelf(key);
+            return;
+        }
         if self.online_open {
             self.update_online(key);
             return;
@@ -1792,6 +2000,14 @@ impl App {
             }
             "S" => {
                 self.open_sort();
+                return;
+            }
+            "s" => {
+                self.open_shelf(false);
+                return;
+            }
+            "A" => {
+                self.open_shelf(true);
                 return;
             }
             "?" => {

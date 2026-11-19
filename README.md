@@ -60,7 +60,14 @@ search_url = "https://www.google.com/search?q=%a+%t"
 google_books_api_key = "your-google-books-api-key"
 rename_format = "%a - %t.epub"
 slugify = true
+
+[shelves]
+unread = "read:no"
+fantasy = "tag:fantasy"
 ```
+
+A shelf is a saved search query, evaluated with the same grammar as `/` in the
+TUI.
 
 There is no built-in library directory: when `library` is unset, or the config
 file is missing, shelf uses the current working directory. The TUI and batch
@@ -193,6 +200,8 @@ AND binds tighter than OR, so `author:herbert read:no OR title:dune` means
 | `d` / `delete` | delete the author or tag under the cursor |
 | `D` | delete the selected book(s), after confirmation |
 | `S` | choose the Books sort order |
+| `s` | choose a shelf |
+| `A` | add selected book(s) to a shelf |
 | `ctrl+o` | open the book under the cursor in the configured viewer |
 | `ctrl+k` | open the configured `search_url` in the default browser |
 | `ctrl+t` | open the theme selector (preview with `↑`/`↓`, `enter` applies) |
@@ -250,6 +259,24 @@ cursor, `ctrl+u` deletes to the start of the line and `ctrl+k` to its end, and
 multi-line box: long text wraps inside the box, `enter` inserts a newline and
 `ctrl+s` saves. Several authors can be added at once separated by `;`.
 
+### Shelves
+
+Declare shelves in the config file and press `s` to pick one. The dialog lists
+every shelf with a live count of the books it matches, plus an `All books` row
+that clears the view. `enter` applies the shelf query to the Books pane, so the
+active shelf appears in the header (`3 books · unread`) and a `✓` marks it in
+the dialog. A shelf is only a query: no book moves on disk.
+
+Press `A` to tag the selection onto a shelf. This second picker lists only
+shelves whose query is one plain `tag:` clause, such as `fantasy =
+"tag:fantasy"`, and adds that tag to the selected books, or to the book under
+the cursor when nothing is selected. Membership is additive: a book on
+`fantasy` stays on every other shelf, because a shelf only tests the metadata.
+A book leaves a shelf when you delete the tag in the metadata pane, or with
+`shelf set --tags`. A shelf whose query is not a single `tag:` clause — for
+example `read:no` or `-tag:archive` — can be viewed with `s` but not written
+with `A`.
+
 ### Autocomplete
 
 The author and series editors complete against every other book on the shelf.
@@ -283,6 +310,10 @@ declaration; EPUB 2 books use the legacy `name`/`content` form.
 
 ## CLI
 
+The configuration declares shelves; the CLI reads them as views over metadata.
+`list --shelf` and `shelves` evaluate the same queries the TUI uses, while the
+editing commands always take file paths.
+
 ### Read
 
 ```sh
@@ -300,6 +331,27 @@ Field names are case insensitive and accept aliases: `author`/`creator`,
 `tags`/`subject`/`genre`, `series`, `series-index`/`episode`/`index`,
 `description`/`summary`, `date`/`published`, `language`/`lang`,
 `rights`/`copyright`, `identifier`/`isbn`/`id`, `read`/`read-status`/`finished`.
+
+### Shelves
+
+```sh
+shelf shelves ~/books                 # every shelf with its book count
+shelf shelves --json ~/books          # machine readable
+shelf list --shelf unread ~/books     # the books on one shelf
+```
+
+`shelves` prints one line per configured shelf, `name: N books (query)`, in
+alphabetical order. `--json` emits a list of `{name, query, books}` objects for
+scripts. Neither command reports unreadable files: the counts are a summary,
+not a check.
+
+`list --shelf NAME` keeps only the books that match the named shelf, and works
+with `--json` too. An unknown name is an error:
+
+```
+$ shelf list --shelf nope ~/books
+error: unknown shelf "nope" (configured: fantasy, unread)
+```
 
 ### Stats
 

@@ -14,6 +14,7 @@ use super::{RunOptions, theme};
 use crate::epub::{self, Creator, Field, Metadata};
 use crate::library::{self, Entry};
 use crate::rename::NameRule;
+use crate::shelves::Shelf;
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
@@ -41,6 +42,7 @@ fn options() -> RunOptions {
         search_url: String::new(),
         rename: NameRule::new("", false),
         move_rule: None,
+        shelves: Vec::new(),
     }
 }
 
@@ -1051,4 +1053,114 @@ fn editor_keeps_a_long_description_end_in_view() {
         "tail not in the editor:\n{editor}"
     );
     assert_eq!(app.area.value(), text);
+}
+
+#[test]
+fn shelf_selector_filters_and_labels() {
+    let mut options = options();
+    options.shelves = vec![
+        Shelf {
+            name: "fantasy".into(),
+            query: "tag:fantasy".into(),
+        },
+        Shelf {
+            name: "unread".into(),
+            query: "read:no".into(),
+        },
+    ];
+    let mut app = app_with(entries(), options);
+    app.handle_key(ch('s'));
+    assert!(app.shelf_open);
+    let view = render(&mut app, 100, 30);
+    assert!(view.contains("Shelf"), "{view}");
+    assert!(view.contains("All books  (3)"), "{view}");
+    assert!(view.contains("fantasy  (0)"), "{view}");
+    assert!(view.contains("unread  (2)"), "{view}");
+
+    app.handle_key(key(KeyCode::Down));
+    app.handle_key(key(KeyCode::Down));
+    app.handle_key(key(KeyCode::Enter));
+    assert!(!app.shelf_open);
+    assert_eq!(app.filter, "read:no");
+    assert_eq!(app.filtered.len(), 2);
+    let view = render(&mut app, 100, 30);
+    assert!(view.contains("· unread"), "{view}");
+}
+
+#[test]
+fn shelf_add_picker_tags_the_selection() {
+    let dir = tempfile::tempdir().unwrap();
+    let opf = crate::epub::test_support::FIXTURE_OPF
+        .replace("<!-- extra -->", "")
+        .replace("<dc:subject id=\"sf\">Science Fiction</dc:subject>", "");
+    let (source_dir, path) = crate::epub::test_support::write_epub(&opf);
+    let target = dir.path().join("untagged.epub");
+    std::fs::copy(&path, &target).unwrap();
+    drop(source_dir);
+
+    let mut options = options();
+    options.shelves = vec![
+        Shelf {
+            name: "fantasy".into(),
+            query: "tag:fantasy".into(),
+        },
+        Shelf {
+            name: "unread".into(),
+            query: "read:no".into(),
+        },
+    ];
+    let mut app = App::new(
+        dir.path().to_path_buf(),
+        Some(vec![library::load_one(&target)]),
+        options,
+    )
+    .unwrap();
+    assert!(app.entries[0].metadata.subjects.is_empty());
+
+    app.handle_key(ch('A'));
+    assert!(app.shelf_open && app.shelf_add);
+    let view = render(&mut app, 100, 30);
+    assert!(view.contains("Add to shelf"), "{view}");
+    assert!(view.contains("fantasy"), "{view}");
+    assert!(!view.contains("All books"), "{view}");
+    assert!(!view.contains("unread"), "{view}");
+
+    app.handle_key(key(KeyCode::Enter));
+    wait_until(&mut app, |app| !app.saving);
+    let subjects = library::load_one(&app.entries[0].path).metadata.subjects;
+    assert_eq!(subjects, ["fantasy"]);
+
+    app.handle_key(ch('A'));
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.status, "already on \"fantasy\"");
+    assert_eq!(app.entries[0].metadata.subjects.len(), 1);
+}
+
+#[test]
+fn shelf_add_without_tag_shelves() {
+    let mut options = options();
+    options.shelves = vec![Shelf {
+        name: "unread".into(),
+        query: "read:no".into(),
+    }];
+    let mut app = app_with(entries(), options);
+    app.handle_key(ch('A'));
+    assert_eq!(
+        app.status,
+        "no tag shelves configured (add e.g. fantasy = \"tag:fantasy\")"
+    );
+    assert_eq!(app.status_kind, StatusKind::Err);
+    assert!(!app.shelf_open);
+}
+
+#[test]
+fn shelf_key_without_config() {
+    let mut app = app_with(entries(), options());
+    app.handle_key(ch('s'));
+    assert_eq!(
+        app.status,
+        "no shelves configured (add a [shelves] table to the config file)"
+    );
+    assert_eq!(app.status_kind, StatusKind::Err);
+    assert!(!app.shelf_open);
 }

@@ -287,3 +287,45 @@ fn read_zip_entry(path: &Path, name: &str) -> String {
     std::io::Read::read_to_string(&mut entry, &mut text).unwrap();
     text
 }
+
+#[test]
+fn shelves_list_and_filter() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config").join("shelf");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join("config.toml"),
+        "[shelves]\nunread = \"read:no\"\n",
+    )
+    .unwrap();
+    write_epub(dir.path(), "a.epub", &opf("Dune", "Frank Herbert"));
+    write_epub(dir.path(), "b.epub", &opf("The Hobbit", "Tolkien"));
+
+    let output = shelf(dir.path(), &["set", "--read", "yes", "a.epub"]);
+    assert!(output.status.success(), "{output:?}");
+
+    let output = shelf(dir.path(), &["list", "--shelf", "unread", "."]);
+    assert!(output.status.success(), "{output:?}");
+    let text = stdout(&output);
+    assert!(text.contains("b.epub"), "{text}");
+    assert!(!text.contains("a.epub"), "{text}");
+
+    let output = shelf(dir.path(), &["shelves", "."]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(stdout(&output), "unread: 1 book (read:no)\n");
+
+    let output = shelf(dir.path(), &["shelves", "--json", "."]);
+    assert!(output.status.success(), "{output:?}");
+    let value: Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(value[0]["name"], "unread");
+    assert_eq!(value[0]["query"], "read:no");
+    assert_eq!(value[0]["books"], 1);
+
+    let output = shelf(dir.path(), &["list", "--shelf", "nope", "."]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("unknown shelf \"nope\" (configured: unread)"),
+        "{output:?}"
+    );
+}

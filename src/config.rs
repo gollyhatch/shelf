@@ -1,5 +1,6 @@
 //! Loads shelf's optional TOML configuration file.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -13,6 +14,9 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     /// Default directory that commands search for EPUB files.
     pub library: String,
+    /// Named shelves: a shelf name mapped to a search query such as "read:no"
+    /// or "tag:fantasy". Order is alphabetical.
+    pub shelves: BTreeMap<String, String>,
     /// Command used to open an EPUB from the TUI. The selected file path is
     /// appended as the final argument.
     pub viewer: String,
@@ -94,6 +98,12 @@ pub fn load_file(path: &Path) -> Result<Config> {
     cfg.theme = cfg.theme.trim().to_owned();
     cfg.google_books_api_key = cfg.google_books_api_key.trim().to_owned();
     cfg.rename_format = cfg.rename_format.trim().to_owned();
+    cfg.shelves = cfg
+        .shelves
+        .into_iter()
+        .filter(|(name, _)| !name.trim().is_empty())
+        .map(|(name, query)| (name.trim().to_owned(), query.trim().to_owned()))
+        .collect();
     Ok(cfg)
 }
 
@@ -135,6 +145,21 @@ mod tests {
         assert_eq!(cfg.library, "/books");
         assert_eq!(cfg.viewer, "zathura");
         assert!(cfg.slugify_rename());
+    }
+
+    #[test]
+    fn parses_shelves() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            "[shelves]\nunread = \" read:no \"\nfantasy = \"tag:fantasy\"\n",
+        )
+        .unwrap();
+        let cfg = load_file(&path).unwrap();
+        assert_eq!(cfg.shelves.len(), 2);
+        assert_eq!(cfg.shelves["unread"], "read:no");
+        assert_eq!(cfg.shelves["fantasy"], "tag:fantasy");
     }
 
     #[test]

@@ -4,7 +4,6 @@ pub mod app;
 mod editor;
 mod help;
 pub mod render;
-mod search;
 mod sort;
 pub mod theme;
 mod wrap;
@@ -21,6 +20,7 @@ use ratatui::DefaultTerminal;
 
 use crate::library;
 use crate::rename::NameRule;
+use crate::shelves::Shelf;
 
 use app::{App, Msg};
 
@@ -35,6 +35,8 @@ pub struct RunOptions {
     pub search_url: String,
     pub rename: NameRule,
     pub move_rule: Option<NameRule>,
+    /// Named shelves from the configuration; the browser prepends "All books".
+    pub shelves: Vec<Shelf>,
 }
 
 /// Start the interactive browser for a directory.
