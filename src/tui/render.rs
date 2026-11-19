@@ -1118,9 +1118,6 @@ impl App {
             return;
         }
         let rows = self.shelf_rows();
-        if rows.is_empty() {
-            return;
-        }
         let page = self.shelf_page_size();
         if page == 0 {
             return;
@@ -1146,6 +1143,13 @@ impl App {
             pad_right(&ellipsis(&title, content_w), content_w),
             self.styles.help_title,
         ))];
+        if rows.is_empty() {
+            let hint = "  no shelves yet · press n to make one";
+            lines.push(Line::from(Span::styled(
+                pad_right(&ellipsis(hint, content_w), content_w),
+                self.styles.empty,
+            )));
+        }
         for (pos, &i) in rows.iter().enumerate().skip(top).take(page) {
             let shelf = &self.shelves[i];
             let count = self.shelf_counts.get(i).copied().unwrap_or(0);

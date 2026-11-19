@@ -1084,11 +1084,10 @@ fn shelf_selector_filters_and_labels() {
     assert!(app.shelf_open);
     let view = render(&mut app, 100, 30);
     assert!(view.contains("Shelf"), "{view}");
-    assert!(view.contains("All books  (3)"), "{view}");
     assert!(view.contains("fantasy  (0)"), "{view}");
     assert!(view.contains("unread  (2)"), "{view}");
+    assert!(!view.contains("All books"), "{view}");
 
-    app.handle_key(key(KeyCode::Down));
     app.handle_key(key(KeyCode::Down));
     app.handle_key(key(KeyCode::Enter));
     assert!(!app.shelf_open);
@@ -1096,6 +1095,15 @@ fn shelf_selector_filters_and_labels() {
     assert_eq!(app.filtered.len(), 2);
     let view = render(&mut app, 100, 30);
     assert!(view.contains("· unread"), "{view}");
+
+    // Esc in the list clears the shelf filter and shows every book again.
+    app.handle_key(key(KeyCode::Esc));
+    assert_eq!(app.filter, "");
+    assert_eq!(app.filtered.len(), 3);
+    let view = render(&mut app, 100, 30);
+    assert!(!view.contains("· unread"), "{view}");
+    assert!(view.contains("3 books"), "{view}");
+    assert!(!view.contains("of 3 books"), "{view}");
 }
 
 #[test]
@@ -1133,7 +1141,6 @@ fn shelf_add_picker_tags_the_selection() {
     let view = render(&mut app, 100, 30);
     assert!(view.contains("Add to shelf"), "{view}");
     assert!(view.contains("fantasy"), "{view}");
-    assert!(!view.contains("All books"), "{view}");
     assert!(!view.contains("unread"), "{view}");
 
     app.handle_key(key(KeyCode::Enter));
@@ -1170,7 +1177,10 @@ fn shelf_key_opens_the_picker_without_shelves() {
     app.handle_key(ch('s'));
     assert!(app.shelf_open, "the picker is the way to make a shelf");
     let view = render(&mut app, 100, 30);
-    assert!(view.contains("All books  (3)"), "{view}");
+    assert!(
+        view.contains("no shelves yet · press n to make one"),
+        "{view}"
+    );
     assert!(view.contains("n new"), "{view}");
 
     app.handle_key(ch('n'));
@@ -1187,7 +1197,7 @@ fn shelf_key_opens_the_picker_without_shelves() {
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.status, "cannot find the config file");
     assert!(app.shelf_new, "the prompt stays open");
-    assert_eq!(app.shelves.len(), 1);
+    assert!(app.shelves.is_empty(), "nothing was added");
 }
 
 #[test]
@@ -1219,7 +1229,7 @@ fn shelf_created_from_the_filter_is_saved() {
     assert_eq!(app.status_kind, StatusKind::Ok);
     let cfg = crate::config::load_file(&config).unwrap();
     assert_eq!(cfg.shelves["unread"], "read:no");
-    assert_eq!(app.shelves.len(), 2, "All books plus the new shelf");
+    assert_eq!(app.shelves.len(), 1, "the picker holds the new shelf only");
 
     let view = render(&mut app, 100, 30);
     assert!(view.contains("· unread"), "the new shelf is active: {view}");
@@ -1251,7 +1261,7 @@ fn shelf_creation_rejects_a_duplicate_name() {
     assert_eq!(app.status, "a shelf named \"Unread\" already exists");
     assert_eq!(app.status_kind, StatusKind::Err);
     assert!(app.shelf_new, "the prompt stays open for another name");
-    assert_eq!(app.shelves.len(), 2);
+    assert_eq!(app.shelves.len(), 1);
     let cfg = crate::config::load_file(&config).unwrap();
     assert_eq!(cfg.shelves.len(), 1, "the config is unchanged");
 

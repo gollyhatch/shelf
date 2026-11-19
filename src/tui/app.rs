@@ -229,7 +229,7 @@ pub(crate) struct App {
     pub themes: Vec<ThemeChoice>,
     theme_before: Option<(String, Styles)>,
 
-    /// Named shelves, with the synthetic "All books" row first.
+    /// The configured shelves, in name order.
     pub shelves: Vec<Shelf>,
     pub shelf_open: bool,
     pub shelf_add: bool,
@@ -301,11 +301,7 @@ impl App {
         let client = online::Client::new(options.google_books_api_key.clone());
         let loaded_count = entries.as_ref().map_or(0, Vec::len);
         let library_path = options.library.clone();
-        let mut shelves = vec![Shelf {
-            name: "All books".to_owned(),
-            query: String::new(),
-        }];
-        shelves.extend(options.shelves.clone());
+        let shelves = options.shelves.clone();
         let mut app = Self {
             dir,
             options,
@@ -1861,12 +1857,11 @@ impl App {
         self.set_status(&format!("saved shelf {name:?}"), StatusKind::Ok);
     }
 
-    /// Insert a shelf in name order, behind the synthetic "All books" row.
+    /// Insert a shelf in name order.
     fn push_shelf(&mut self, shelf: Shelf) {
-        let mut rest: Vec<Shelf> = self.shelves.split_off(1);
-        rest.push(shelf);
-        rest.sort_by(|left, right| left.name.cmp(&right.name));
-        self.shelves.extend(rest);
+        self.shelves.push(shelf);
+        self.shelves
+            .sort_by(|left, right| left.name.cmp(&right.name));
         self.refresh_shelf_counts();
     }
 

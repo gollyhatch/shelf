@@ -35,7 +35,7 @@ pub struct RunOptions {
     pub search_url: String,
     pub rename: NameRule,
     pub move_rule: Option<NameRule>,
-    /// Named shelves from the configuration; the browser prepends "All books".
+    /// Named shelves from the configuration.
     pub shelves: Vec<Shelf>,
     /// Config file that shelves created in the app are written to. `None`
     /// disables saving.

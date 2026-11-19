@@ -264,10 +264,12 @@ multi-line box: long text wraps inside the box, `enter` inserts a newline and
 ### Shelves
 
 Declare shelves in the config file and press `s` to pick one. The dialog lists
-every shelf with a live count of the books it matches, plus an `All books` row
-that clears the view. `enter` applies the shelf query to the Books pane, so the
-active shelf appears in the header (`3 books · unread`) and a `✓` marks it in
-the dialog. A shelf is only a query: no book moves on disk.
+every shelf with a live count of the books it matches. `enter` applies the
+shelf query to the Books pane, so the active shelf appears in the header
+(`3 books · unread`) and a `✓` marks it in the dialog. A shelf is only a query:
+no book moves on disk. Press `esc` in the Books pane to clear the shelf and see
+every book again. An empty dialog means no shelf is configured yet; `n` makes
+one.
 
 Press `n` in the picker to save the current filter as a new shelf. Type a name
 and press `enter`: the app writes the shelf into the `[shelves]` table of the
