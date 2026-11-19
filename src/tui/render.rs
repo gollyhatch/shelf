@@ -11,6 +11,7 @@ use super::app::{
     App, Mode, Pane, ReadFilter, Row, RowKind, StatusKind, adjust_list_top,
     clamp, entry_heights, file_count, file_name,
 };
+use super::editor::Input;
 use super::help::HELP_ENTRIES;
 use super::sort::SORT_MODES;
 use super::theme::Styles;
@@ -848,8 +849,21 @@ impl App {
     }
 
     fn input_line(&self, width: usize) -> Line<'static> {
-        let (text, cursor, _) = self.input.window(width.saturating_sub(2));
-        let mut spans = vec![Span::styled("› ", self.styles.editor_label)];
+        self.field_line(&self.input, "› ", self.styles.editor_label, width)
+    }
+
+    /// One editable line: `prefix` in `prefix_style`, then the input with a
+    /// reversed cursor block.
+    fn field_line(
+        &self,
+        input: &Input,
+        prefix: &str,
+        prefix_style: Style,
+        width: usize,
+    ) -> Line<'static> {
+        let used = UnicodeWidthStr::width(prefix);
+        let (text, cursor, _) = input.window(width.saturating_sub(used + 1));
+        let mut spans = vec![Span::styled(prefix.to_owned(), prefix_style)];
         let chars: Vec<char> = text.chars().collect();
         let mut placed = false;
         for (i, c) in chars.iter().enumerate() {
@@ -1095,6 +1109,10 @@ impl App {
     }
 
     fn draw_shelf(&self, frame: &mut Frame, area: Rect) {
+        if self.shelf_new {
+            self.draw_shelf_new(frame, area);
+            return;
+        }
         let height = self.body_height();
         if height < 4 || self.width < 16 {
             return;
@@ -1147,6 +1165,44 @@ impl App {
             };
             lines.push(Line::from(Span::styled(plain, style)));
         }
+        self.draw_dialog(
+            frame,
+            area,
+            content_w,
+            lines,
+            self.styles.border_focused,
+        );
+    }
+
+    /// The prompt that names a shelf for the current filter.
+    fn draw_shelf_new(&self, frame: &mut Frame, area: Rect) {
+        let height = self.body_height();
+        if height < 5 || self.width < 16 {
+            return;
+        }
+        let content_w = clamp(self.width.saturating_sub(6), 20, 72);
+        let query = ellipsis(self.filter.trim(), content_w.saturating_sub(9));
+        let hint = pad_right(
+            &ellipsis("enter save · esc cancel", content_w),
+            content_w,
+        );
+        let lines = vec![
+            Line::from(Span::styled(
+                pad_right(&ellipsis("New shelf", content_w), content_w),
+                self.styles.help_title,
+            )),
+            self.field_line(
+                &self.shelf_name,
+                "  name  › ",
+                self.styles.label,
+                content_w,
+            ),
+            Line::from(vec![
+                Span::styled("  query   ", self.styles.label),
+                Span::styled(query, self.styles.value),
+            ]),
+            Line::from(Span::styled(hint, self.styles.help)),
+        ];
         self.draw_dialog(
             frame,
             area,
@@ -1373,8 +1429,15 @@ impl App {
             vec![("↑↓", "choose"), ("enter", "apply"), ("esc", "cancel")]
         } else if self.theme_open {
             vec![("↑↓", "preview"), ("enter", "apply"), ("esc", "cancel")]
+        } else if self.shelf_new {
+            vec![("enter", "save"), ("esc", "cancel")]
         } else if self.shelf_open {
-            vec![("↑↓", "choose"), ("enter", "apply"), ("esc", "cancel")]
+            vec![
+                ("↑↓", "choose"),
+                ("enter", "apply"),
+                ("n", "new"),
+                ("esc", "cancel"),
+            ]
         } else if self.online_open {
             vec![
                 ("space", "toggle"),

@@ -311,6 +311,7 @@ fn run_options(cfg: &Config) -> tui::RunOptions {
         rename: NameRule::new(cfg.rename_format.clone(), slugify),
         move_rule: rename::move_rule(&cfg.rename_format, slugify),
         shelves: crate::shelves::catalog(cfg),
+        config_path: crate::config::path().ok(),
     }
 }
 

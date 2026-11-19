@@ -233,8 +233,11 @@ pub(crate) struct App {
     pub shelves: Vec<Shelf>,
     pub shelf_open: bool,
     pub shelf_add: bool,
+    /// The open picker is naming a new shelf instead of listing shelves.
+    pub shelf_new: bool,
     pub shelf_idx: usize,
     pub shelf_counts: Vec<usize>,
+    pub shelf_name: Input,
 
     pub suggestions: Vec<String>,
     pub suggestion_index: usize,
@@ -342,8 +345,10 @@ impl App {
             shelves,
             shelf_open: false,
             shelf_add: false,
+            shelf_new: false,
             shelf_idx: 0,
             shelf_counts: Vec::new(),
+            shelf_name: Input::default(),
             suggestions: Vec::new(),
             suggestion_index: 0,
             show_suggestions: false,
@@ -1727,16 +1732,10 @@ impl App {
             }
             self.shelf_idx = 0;
         } else {
-            if self.shelves.len() <= 1 {
-                self.set_status(
-                    "no shelves configured (add a [shelves] table to the config file)",
-                    StatusKind::Err,
-                );
-                return;
-            }
             self.shelf_idx = self.active_shelf_idx().unwrap_or(0);
         }
         self.shelf_add = add;
+        self.shelf_new = false;
         self.refresh_shelf_counts();
         self.shelf_open = true;
         self.status.clear();
@@ -1751,11 +1750,16 @@ impl App {
     }
 
     fn update_shelf(&mut self, key: KeyEvent) {
+        if self.shelf_new {
+            self.update_shelf_new(key);
+            return;
+        }
         let page = self.shelf_page_size().max(1) as isize;
         let rows = self.shelf_rows();
         let last = rows.len().saturating_sub(1);
         match key_name(&key).as_str() {
             "esc" | "q" | "ctrl+c" => self.shelf_open = false,
+            "n" => self.start_new_shelf(),
             "enter" => {
                 self.shelf_open = false;
                 if let Some(&target) = rows.get(self.shelf_idx) {
@@ -1792,6 +1796,78 @@ impl App {
             "end" | "G" => self.shelf_idx = last,
             _ => {}
         }
+    }
+
+    /// Start naming a shelf whose query is the current filter.
+    fn start_new_shelf(&mut self) {
+        if self.filter.trim().is_empty() {
+            self.set_status(
+                "filter the books first: a new shelf saves the current filter",
+                StatusKind::Err,
+            );
+            return;
+        }
+        self.shelf_name.set_value("");
+        self.shelf_new = true;
+        self.status.clear();
+    }
+
+    fn update_shelf_new(&mut self, key: KeyEvent) {
+        match key_name(&key).as_str() {
+            "esc" | "ctrl+c" => {
+                self.shelf_new = false;
+                self.status.clear();
+            }
+            "enter" => self.save_new_shelf(),
+            _ => {
+                self.shelf_name.handle_key(key);
+            }
+        }
+    }
+
+    /// Write the new shelf to the config file and add it to the picker.
+    fn save_new_shelf(&mut self) {
+        let name = self.shelf_name.value().trim().to_owned();
+        if name.is_empty() {
+            self.set_status("the shelf needs a name", StatusKind::Err);
+            return;
+        }
+        if self
+            .shelves
+            .iter()
+            .any(|shelf| shelf.name.eq_ignore_ascii_case(&name))
+        {
+            self.set_status(
+                &format!("a shelf named {name:?} already exists"),
+                StatusKind::Err,
+            );
+            return;
+        }
+        let query = self.filter.trim().to_owned();
+        let Some(path) = self.options.config_path.clone() else {
+            self.set_status("cannot find the config file", StatusKind::Err);
+            return;
+        };
+        if let Err(err) = shelves::save(&path, &name, &query) {
+            self.set_status(&format!("shelf: {err}"), StatusKind::Err);
+            return;
+        }
+        self.push_shelf(Shelf {
+            name: name.clone(),
+            query,
+        });
+        self.shelf_new = false;
+        self.shelf_open = false;
+        self.set_status(&format!("saved shelf {name:?}"), StatusKind::Ok);
+    }
+
+    /// Insert a shelf in name order, behind the synthetic "All books" row.
+    fn push_shelf(&mut self, shelf: Shelf) {
+        let mut rest: Vec<Shelf> = self.shelves.split_off(1);
+        rest.push(shelf);
+        rest.sort_by(|left, right| left.name.cmp(&right.name));
+        self.shelves.extend(rest);
+        self.refresh_shelf_counts();
     }
 
     fn add_to_shelf(&mut self, idx: usize) {

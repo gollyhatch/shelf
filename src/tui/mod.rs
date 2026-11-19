@@ -11,7 +11,7 @@ mod wrap;
 #[cfg(test)]
 mod tests;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -37,6 +37,9 @@ pub struct RunOptions {
     pub move_rule: Option<NameRule>,
     /// Named shelves from the configuration; the browser prepends "All books".
     pub shelves: Vec<Shelf>,
+    /// Config file that shelves created in the app are written to. `None`
+    /// disables saving.
+    pub config_path: Option<PathBuf>,
 }
 
 /// Start the interactive browser for a directory.

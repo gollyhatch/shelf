@@ -67,7 +67,8 @@ fantasy = "tag:fantasy"
 ```
 
 A shelf is a saved search query, evaluated with the same grammar as `/` in the
-TUI.
+TUI. Press `n` in the shelf picker to add one from the filter you are looking
+at.
 
 There is no built-in library directory: when `library` is unset, or the config
 file is missing, shelf uses the current working directory. The TUI and batch
@@ -202,6 +203,7 @@ AND binds tighter than OR, so `author:herbert read:no OR title:dune` means
 | `S` | choose the Books sort order |
 | `s` | choose a shelf |
 | `A` | add selected book(s) to a shelf |
+| `n` | in the shelf picker: save the current filter as a new shelf |
 | `ctrl+o` | open the book under the cursor in the configured viewer |
 | `ctrl+k` | open the configured `search_url` in the default browser |
 | `ctrl+t` | open the theme selector (preview with `↑`/`↓`, `enter` applies) |
@@ -266,6 +268,13 @@ every shelf with a live count of the books it matches, plus an `All books` row
 that clears the view. `enter` applies the shelf query to the Books pane, so the
 active shelf appears in the header (`3 books · unread`) and a `✓` marks it in
 the dialog. A shelf is only a query: no book moves on disk.
+
+Press `n` in the picker to save the current filter as a new shelf. Type a name
+and press `enter`: the app writes the shelf into the `[shelves]` table of the
+config file, keeping every other line as it is, and the new shelf becomes the
+active one. A filter is required, because the filter is the shelf's query.
+When you work without a config file, the picker still opens, but the prompt
+reports `cannot find the config file` instead of saving.
 
 Press `A` to tag the selection onto a shelf. This second picker lists only
 shelves whose query is one plain `tag:` clause, such as `fantasy =

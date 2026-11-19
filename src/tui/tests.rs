@@ -43,6 +43,7 @@ fn options() -> RunOptions {
         rename: NameRule::new("", false),
         move_rule: None,
         shelves: Vec::new(),
+        config_path: None,
     }
 }
 
@@ -679,6 +680,16 @@ fn edit_and_dialogs_fit_small_terminals() {
         let view = render(&mut app, width, height);
         assert_eq!(view.lines().count(), height as usize);
         app.handle_key(ch('n'));
+
+        app.set_filter("read:no");
+        app.handle_key(ch('s'));
+        let view = render(&mut app, width, height);
+        assert_eq!(view.lines().count(), height as usize);
+        app.handle_key(ch('n'));
+        let view = render(&mut app, width, height);
+        assert_eq!(view.lines().count(), height as usize);
+        app.handle_key(key(KeyCode::Esc));
+        app.handle_key(key(KeyCode::Esc));
     }
 }
 
@@ -1154,13 +1165,98 @@ fn shelf_add_without_tag_shelves() {
 }
 
 #[test]
-fn shelf_key_without_config() {
+fn shelf_key_opens_the_picker_without_shelves() {
     let mut app = app_with(entries(), options());
     app.handle_key(ch('s'));
+    assert!(app.shelf_open, "the picker is the way to make a shelf");
+    let view = render(&mut app, 100, 30);
+    assert!(view.contains("All books  (3)"), "{view}");
+    assert!(view.contains("n new"), "{view}");
+
+    app.handle_key(ch('n'));
     assert_eq!(
         app.status,
-        "no shelves configured (add a [shelves] table to the config file)"
+        "filter the books first: a new shelf saves the current filter"
     );
+    assert!(!app.shelf_new);
+
+    app.set_filter("read:no");
+    app.handle_key(ch('n'));
+    assert!(app.shelf_new);
+    app.handle_key(ch('x'));
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.status, "cannot find the config file");
+    assert!(app.shelf_new, "the prompt stays open");
+    assert_eq!(app.shelves.len(), 1);
+}
+
+#[test]
+fn shelf_created_from_the_filter_is_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("shelf").join("config.toml");
+    let mut options = options();
+    options.config_path = Some(config.clone());
+    let mut app = app_with(entries(), options);
+
+    app.handle_key(ch('/'));
+    for c in "read:no".chars() {
+        app.handle_key(ch(c));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    app.handle_key(ch('s'));
+    app.handle_key(ch('n'));
+    assert!(app.shelf_new, "the prompt names the new shelf");
+    for c in "unread".chars() {
+        app.handle_key(ch(c));
+    }
+    let view = render(&mut app, 100, 30);
+    assert!(view.contains("New shelf"), "{view}");
+    assert!(view.contains("read:no"), "{view}");
+
+    app.handle_key(key(KeyCode::Enter));
+    assert!(!app.shelf_open && !app.shelf_new);
+    assert_eq!(app.status, "saved shelf \"unread\"");
+    assert_eq!(app.status_kind, StatusKind::Ok);
+    let cfg = crate::config::load_file(&config).unwrap();
+    assert_eq!(cfg.shelves["unread"], "read:no");
+    assert_eq!(app.shelves.len(), 2, "All books plus the new shelf");
+
+    let view = render(&mut app, 100, 30);
+    assert!(view.contains("· unread"), "the new shelf is active: {view}");
+    app.handle_key(ch('s'));
+    let view = render(&mut app, 100, 30);
+    assert!(view.contains("unread  (2)"), "{view}");
+}
+
+#[test]
+fn shelf_creation_rejects_a_duplicate_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    std::fs::write(&config, "[shelves]\nunread = \"read:no\"\n").unwrap();
+    let mut options = options();
+    options.config_path = Some(config.clone());
+    options.shelves = vec![Shelf {
+        name: "unread".into(),
+        query: "read:no".into(),
+    }];
+    let mut app = app_with(entries(), options);
+    app.set_filter("read:no");
+
+    app.handle_key(ch('s'));
+    app.handle_key(ch('n'));
+    for c in "Unread".chars() {
+        app.handle_key(ch(c));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.status, "a shelf named \"Unread\" already exists");
     assert_eq!(app.status_kind, StatusKind::Err);
-    assert!(!app.shelf_open);
+    assert!(app.shelf_new, "the prompt stays open for another name");
+    assert_eq!(app.shelves.len(), 2);
+    let cfg = crate::config::load_file(&config).unwrap();
+    assert_eq!(cfg.shelves.len(), 1, "the config is unchanged");
+
+    app.shelf_name.set_value("");
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.status, "the shelf needs a name");
+    assert!(app.shelf_new);
 }
