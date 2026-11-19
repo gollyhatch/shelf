@@ -9,7 +9,7 @@ use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::style::Color;
 
-use super::app::{App, Mode, Pane, RowKind, StatusKind};
+use super::app::{App, Mode, Pane, RowKind, ShelfField, StatusKind};
 use super::{RunOptions, theme};
 use crate::epub::{self, Creator, Field, Metadata};
 use crate::library::{self, Entry};
@@ -1188,15 +1188,15 @@ fn shelf_key_opens_the_picker_without_shelves() {
         app.status,
         "filter the books first: a new shelf saves the current filter"
     );
-    assert!(!app.shelf_new);
+    assert!(!app.shelf_prompt);
 
     app.set_filter("read:no");
     app.handle_key(ch('n'));
-    assert!(app.shelf_new);
+    assert!(app.shelf_prompt);
     app.handle_key(ch('x'));
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.status, "cannot find the config file");
-    assert!(app.shelf_new, "the prompt stays open");
+    assert!(app.shelf_prompt, "the prompt stays open");
     assert!(app.shelves.is_empty(), "nothing was added");
 }
 
@@ -1215,7 +1215,7 @@ fn shelf_created_from_the_filter_is_saved() {
     app.handle_key(key(KeyCode::Enter));
     app.handle_key(ch('s'));
     app.handle_key(ch('n'));
-    assert!(app.shelf_new, "the prompt names the new shelf");
+    assert!(app.shelf_prompt, "the prompt names the new shelf");
     for c in "unread".chars() {
         app.handle_key(ch(c));
     }
@@ -1224,7 +1224,7 @@ fn shelf_created_from_the_filter_is_saved() {
     assert!(view.contains("read:no"), "{view}");
 
     app.handle_key(key(KeyCode::Enter));
-    assert!(!app.shelf_open && !app.shelf_new);
+    assert!(!app.shelf_open && !app.shelf_prompt);
     assert_eq!(app.status, "saved shelf \"unread\"");
     assert_eq!(app.status_kind, StatusKind::Ok);
     let cfg = crate::config::load_file(&config).unwrap();
@@ -1260,7 +1260,7 @@ fn shelf_creation_rejects_a_duplicate_name() {
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.status, "a shelf named \"Unread\" already exists");
     assert_eq!(app.status_kind, StatusKind::Err);
-    assert!(app.shelf_new, "the prompt stays open for another name");
+    assert!(app.shelf_prompt, "the prompt stays open for another name");
     assert_eq!(app.shelves.len(), 1);
     let cfg = crate::config::load_file(&config).unwrap();
     assert_eq!(cfg.shelves.len(), 1, "the config is unchanged");
@@ -1268,5 +1268,91 @@ fn shelf_creation_rejects_a_duplicate_name() {
     app.shelf_name.set_value("");
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.status, "the shelf needs a name");
-    assert!(app.shelf_new);
+    assert!(app.shelf_prompt);
+}
+
+#[test]
+fn shelf_hints_are_inside_the_dialog() {
+    let mut options = options();
+    options.shelves = vec![Shelf {
+        name: "unread".into(),
+        query: "read:no".into(),
+    }];
+    let mut app = app_with(entries(), options);
+    app.handle_key(ch('s'));
+    let view = render(&mut app, 100, 30);
+    assert!(view.contains("e edit"), "{view}");
+    assert!(view.contains("esc cancel"), "{view}");
+    let footer = view.lines().last().unwrap_or_default();
+    assert!(footer.trim().is_empty(), "footer is empty: {footer:?}");
+
+    app.set_filter("read:no");
+    app.handle_key(ch('e'));
+    let view = render(&mut app, 100, 30);
+    assert!(view.contains("tab switch"), "{view}");
+    let footer = view.lines().last().unwrap_or_default();
+    assert!(footer.trim().is_empty(), "footer is empty: {footer:?}");
+}
+
+#[test]
+fn shelf_edited_from_the_picker() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    std::fs::write(
+        &config,
+        "[shelves]\nfantasy = \"tag:fantasy\"\nunread = \"read:no\"\n",
+    )
+    .unwrap();
+    let mut options = options();
+    options.config_path = Some(config.clone());
+    options.shelves = vec![
+        Shelf {
+            name: "fantasy".into(),
+            query: "tag:fantasy".into(),
+        },
+        Shelf {
+            name: "unread".into(),
+            query: "read:no".into(),
+        },
+    ];
+    let mut app = app_with(entries(), options);
+    app.set_filter("read:no");
+
+    app.handle_key(ch('s'));
+    app.handle_key(ch('e'));
+    assert!(app.shelf_prompt);
+    assert_eq!(app.shelf_edit, Some(1), "the active shelf is edited");
+    assert_eq!(app.shelf_name.value(), "unread");
+    assert_eq!(app.shelf_query.value(), "read:no");
+    let view = render(&mut app, 100, 30);
+    assert!(view.contains("Edit shelf"), "{view}");
+    assert!(view.contains("unread"), "{view}");
+
+    // The name must stay unique.
+    app.shelf_name.set_value("fantasy");
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.status, "a shelf named \"fantasy\" already exists");
+    assert!(app.shelf_prompt, "the form stays open");
+    let cfg = crate::config::load_file(&config).unwrap();
+    assert_eq!(cfg.shelves.len(), 2);
+
+    app.shelf_name.set_value("to read");
+    app.handle_key(key(KeyCode::Tab));
+    assert_eq!(app.shelf_focus, ShelfField::Query);
+    for c in " author:herbert".chars() {
+        app.handle_key(ch(c));
+    }
+    assert_eq!(app.shelf_query.value(), "read:no author:herbert");
+    app.handle_key(key(KeyCode::Enter));
+    assert!(!app.shelf_open && !app.shelf_prompt);
+    assert_eq!(app.status, "updated shelf \"to read\"");
+    assert_eq!(app.status_kind, StatusKind::Ok);
+
+    let cfg = crate::config::load_file(&config).unwrap();
+    assert_eq!(cfg.shelves["to read"], "read:no author:herbert");
+    assert!(!cfg.shelves.contains_key("unread"));
+    assert_eq!(cfg.shelves["fantasy"], "tag:fantasy");
+    assert_eq!(app.shelves.len(), 2);
+    assert_eq!(app.shelves[1].name, "to read");
+    assert_eq!(app.shelves[1].query, "read:no author:herbert");
 }

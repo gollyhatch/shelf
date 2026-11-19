@@ -68,48 +68,73 @@ pub fn membership_tag(query: &str) -> Option<String> {
 pub fn save(path: &Path, name: &str, query: &str) -> Result<()> {
     let name = name.trim();
     let query = query.trim();
-    let entry = format!("{} = {}", toml_key(name), toml_string(query));
-    let original = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == ErrorKind::NotFound => String::new(),
-        Err(err) => bail!("config {}: {err}", path.display()),
-    };
-    let text = match shelves_table_end(&original) {
-        Some(at) => {
-            let block = if original[..at].ends_with('\n') {
-                format!("{entry}\n")
-            } else {
-                format!("\n{entry}\n")
-            };
-            let mut text = original.clone();
-            text.insert_str(at, &block);
-            text
-        }
-        None => {
-            let mut text = original;
-            if !text.is_empty() && !text.ends_with('\n') {
-                text.push('\n');
-            }
-            if !text.is_empty() {
-                text.push('\n');
-            }
-            text.push_str("[shelves]\n");
-            text.push_str(&entry);
-            text.push('\n');
-            text
-        }
-    };
-    // A second `[shelves]` header or a repeated key would make the whole
-    // configuration unreadable, so write nothing unless it still parses.
-    let parsed: toml::Value = toml::from_str(&text)
-        .with_context(|| format!("update config {}", path.display()))?;
-    let stored = parsed
-        .get("shelves")
-        .and_then(|table| table.get(name))
-        .and_then(|value| value.as_str());
-    if stored != Some(query) {
+    let entry = entry_line(name, query);
+    let text = insert_entry(&read_config(path)?, &entry);
+    let shelves = parsed_shelves(&text, path)?;
+    if shelves.get(name).and_then(|value| value.as_str()) != Some(query) {
         bail!("config {}: cannot add shelf {name:?}", path.display());
     }
+    write_config(path, &text)
+}
+
+/// Change the name or the query of one shelf, keeping every other line as it
+/// is. The line that defines `old_name` is replaced; when the file has no such
+/// line the shelf is added. The name and query are trimmed.
+pub fn edit(
+    path: &Path,
+    old_name: &str,
+    name: &str,
+    query: &str,
+) -> Result<()> {
+    let old_name = old_name.trim();
+    let name = name.trim();
+    let query = query.trim();
+    let entry = entry_line(name, query);
+    let original = read_config(path)?;
+    let text = match shelf_line(&original, old_name) {
+        Some((start, end)) => {
+            let mut text = original;
+            text.replace_range(start..end, &entry);
+            text
+        }
+        None => insert_entry(&original, &entry),
+    };
+    let shelves = parsed_shelves(&text, path)?;
+    let renamed = old_name != name
+        && shelves.get(old_name).is_some_and(|value| value.is_str());
+    if shelves.get(name).and_then(|value| value.as_str()) != Some(query)
+        || renamed
+    {
+        bail!("config {}: cannot edit shelf {old_name:?}", path.display());
+    }
+    write_config(path, &text)
+}
+
+fn entry_line(name: &str, query: &str) -> String {
+    format!("{} = {}", toml_key(name), toml_string(query))
+}
+
+fn read_config(path: &Path) -> Result<String> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(text),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(String::new()),
+        Err(err) => bail!("config {}: {err}", path.display()),
+    }
+}
+
+/// The `[shelves]` table of the candidate text. A repeated key or a second
+/// header makes the whole configuration unreadable, so every caller parses
+/// before it writes.
+fn parsed_shelves(text: &str, path: &Path) -> Result<toml::Table> {
+    let root: toml::Value = toml::from_str(text)
+        .with_context(|| format!("update config {}", path.display()))?;
+    match root.get("shelves") {
+        Some(toml::Value::Table(table)) => Ok(table.clone()),
+        _ => Ok(toml::Table::new()),
+    }
+}
+
+fn write_config(path: &Path, text: &str) -> Result<()> {
     if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
         fs::create_dir_all(dir)
             .with_context(|| format!("create {}", dir.display()))?;
@@ -117,6 +142,65 @@ pub fn save(path: &Path, name: &str, query: &str) -> Result<()> {
     fs::write(path, text)
         .with_context(|| format!("write {}", path.display()))?;
     Ok(())
+}
+
+/// Insert `entry` after the `[shelves]` header, or append a table for it.
+fn insert_entry(original: &str, entry: &str) -> String {
+    match shelves_table_end(original) {
+        Some(at) => {
+            let block = if original[..at].ends_with('\n') {
+                format!("{entry}\n")
+            } else {
+                format!("\n{entry}\n")
+            };
+            let mut text = original.to_owned();
+            text.insert_str(at, &block);
+            text
+        }
+        None => {
+            let mut text = original.to_owned();
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n');
+            }
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str("[shelves]\n");
+            text.push_str(entry);
+            text.push('\n');
+            text
+        }
+    }
+}
+
+/// The byte range of the line in `[shelves]` that sets `name` to a string.
+fn shelf_line(text: &str, name: &str) -> Option<(usize, usize)> {
+    let table = shelves_table_end(text)?;
+    let mut start = table;
+    for line in text[table..].split_inclusive('\n') {
+        let bare = line.trim();
+        if bare.starts_with('[') {
+            return None;
+        }
+        if !bare.is_empty() && !bare.starts_with('#') && line_sets(line, name) {
+            let end = start + line.trim_end().len();
+            return Some((start, end));
+        }
+        start += line.len();
+    }
+    None
+}
+
+/// Whether one line of `[shelves]` sets `name` to a string value.
+fn line_sets(line: &str, name: &str) -> bool {
+    let probe = format!("[shelves]\n{line}\n");
+    let Ok(root) = toml::from_str::<toml::Value>(&probe) else {
+        return false;
+    };
+    let Some(toml::Value::Table(table)) = root.get("shelves") else {
+        return false;
+    };
+    table.len() == 1 && table.get(name).is_some_and(|value| value.is_str())
 }
 
 /// The byte offset just after a `[shelves]` table header, when the file has
@@ -290,5 +374,69 @@ mod tests {
         assert!(save(&path, "unread", "read:yes").is_err());
         let text = fs::read_to_string(&path).unwrap();
         assert_eq!(text, "[shelves]\nunread = \"read:no\"\n");
+    }
+
+    #[test]
+    fn edit_changes_the_query_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            "# mine\n[shelves]\nfantasy = \"tag:fantasy\"\nunread = \"read:no\"\n",
+        )
+        .unwrap();
+        edit(&path, "unread", "unread", "read:no author:herbert").unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# mine\n[shelves]\n"), "{text}");
+        assert!(
+            text.contains("fantasy = \"tag:fantasy\"\n"),
+            "the other shelf is kept: {text}"
+        );
+        let cfg = crate::config::load_file(&path).unwrap();
+        assert_eq!(cfg.shelves["unread"], "read:no author:herbert");
+        assert_eq!(cfg.shelves.len(), 2);
+    }
+
+    #[test]
+    fn edit_renames_a_shelf() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            "[shelves]\nfantasy = \"tag:fantasy\"\nunread = \"read:no\"\n",
+        )
+        .unwrap();
+        edit(&path, "unread", "to read", "read:no").unwrap();
+        let cfg = crate::config::load_file(&path).unwrap();
+        assert_eq!(cfg.shelves["to read"], "read:no");
+        assert!(!cfg.shelves.contains_key("unread"));
+        assert_eq!(cfg.shelves["fantasy"], "tag:fantasy");
+        assert_eq!(cfg.shelves.len(), 2);
+    }
+
+    #[test]
+    fn edit_adds_a_missing_shelf() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "theme = \"nord\"\n").unwrap();
+        edit(&path, "unread", "unread", "read:no").unwrap();
+        let cfg = crate::config::load_file(&path).unwrap();
+        assert_eq!(cfg.theme, "nord");
+        assert_eq!(cfg.shelves["unread"], "read:no");
+    }
+
+    #[test]
+    fn edit_refuses_to_overwrite_another_shelf() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            "[shelves]\nfantasy = \"tag:fantasy\"\nunread = \"read:no\"\n",
+        )
+        .unwrap();
+        assert!(edit(&path, "unread", "fantasy", "read:no").is_err());
+        let cfg = crate::config::load_file(&path).unwrap();
+        assert_eq!(cfg.shelves["fantasy"], "tag:fantasy");
+        assert_eq!(cfg.shelves["unread"], "read:no");
     }
 }

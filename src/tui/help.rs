@@ -111,6 +111,8 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
     bind("↑/↓, j/k", "choose"),
     bind("enter", "apply the shelf"),
     bind("n", "create a shelf from the current filter"),
+    bind("e", "edit the selected shelf"),
+    bind("tab", "switch between name and query"),
     bind("esc/q", "cancel"),
     bind("pgup/pgdn", "page up / down"),
     bind("ctrl+u/d", "page up / down"),

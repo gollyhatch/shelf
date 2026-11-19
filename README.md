@@ -204,6 +204,7 @@ AND binds tighter than OR, so `author:herbert read:no OR title:dune` means
 | `s` | choose a shelf |
 | `A` | add selected book(s) to a shelf |
 | `n` | in the shelf picker: save the current filter as a new shelf |
+| `e` | in the shelf picker: edit the selected shelf |
 | `ctrl+o` | open the book under the cursor in the configured viewer |
 | `ctrl+k` | open the configured `search_url` in the default browser |
 | `ctrl+t` | open the theme selector (preview with `↑`/`↓`, `enter` applies) |
@@ -271,12 +272,19 @@ no book moves on disk. Press `esc` in the Books pane to clear the shelf and see
 every book again. An empty dialog means no shelf is configured yet; `n` makes
 one.
 
-Press `n` in the picker to save the current filter as a new shelf. Type a name
-and press `enter`: the app writes the shelf into the `[shelves]` table of the
-config file, keeping every other line as it is, and the new shelf becomes the
-active one. A filter is required, because the filter is the shelf's query.
-When you work without a config file, the picker still opens, but the prompt
-reports `cannot find the config file` instead of saving.
+Press `n` in the picker to save the current filter as a new shelf. A form asks
+for a name and a query; `tab` switches between the two fields and `enter`
+saves. The app writes the shelf into the `[shelves]` table of the config file,
+keeping every other line as it is, and the new shelf becomes the active one. A
+filter is required, because the filter is the shelf's query. When you work
+without a config file, the picker still opens, but the form reports `cannot
+find the config file` instead of saving.
+
+Press `e` to edit the highlighted shelf: the same form opens with its name and
+query, so you can rename it, change its query, or both. The line in the config
+file is replaced in place, and a name that another shelf already uses is
+refused. The key hints sit in the dialog itself, and the footer line stays
+empty while a shelf dialog is open.
 
 Press `A` to tag the selection onto a shelf. This second picker lists only
 shelves whose query is one plain `tag:` clause, such as `fantasy =

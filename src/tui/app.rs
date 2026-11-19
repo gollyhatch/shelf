@@ -61,6 +61,13 @@ impl ReadFilter {
     }
 }
 
+/// The field of the shelf form that takes keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShelfField {
+    Name,
+    Query,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RowKind {
     /// A plain metadata field.
@@ -233,11 +240,15 @@ pub(crate) struct App {
     pub shelves: Vec<Shelf>,
     pub shelf_open: bool,
     pub shelf_add: bool,
-    /// The open picker is naming a new shelf instead of listing shelves.
-    pub shelf_new: bool,
+    /// The name-and-query form is open over the picker.
+    pub shelf_prompt: bool,
+    /// The shelf the form edits; `None` creates a new shelf.
+    pub shelf_edit: Option<usize>,
+    pub shelf_focus: ShelfField,
     pub shelf_idx: usize,
     pub shelf_counts: Vec<usize>,
     pub shelf_name: Input,
+    pub shelf_query: Input,
 
     pub suggestions: Vec<String>,
     pub suggestion_index: usize,
@@ -341,10 +352,13 @@ impl App {
             shelves,
             shelf_open: false,
             shelf_add: false,
-            shelf_new: false,
+            shelf_prompt: false,
+            shelf_edit: None,
+            shelf_focus: ShelfField::Name,
             shelf_idx: 0,
             shelf_counts: Vec::new(),
             shelf_name: Input::default(),
+            shelf_query: Input::default(),
             suggestions: Vec::new(),
             suggestion_index: 0,
             show_suggestions: false,
@@ -1731,23 +1745,26 @@ impl App {
             self.shelf_idx = self.active_shelf_idx().unwrap_or(0);
         }
         self.shelf_add = add;
-        self.shelf_new = false;
+        self.shelf_prompt = false;
+        self.shelf_edit = None;
         self.refresh_shelf_counts();
         self.shelf_open = true;
         self.status.clear();
     }
 
+    /// Rows the picker can show: the body minus the borders, the title and
+    /// the key hints.
     pub(crate) fn shelf_page_size(&self) -> usize {
         let height = self.body_height();
-        if height < 4 {
+        if height < 5 {
             return 0;
         }
-        height - 3
+        height - 4
     }
 
     fn update_shelf(&mut self, key: KeyEvent) {
-        if self.shelf_new {
-            self.update_shelf_new(key);
+        if self.shelf_prompt {
+            self.update_shelf_form(key);
             return;
         }
         let page = self.shelf_page_size().max(1) as isize;
@@ -1755,7 +1772,8 @@ impl App {
         let last = rows.len().saturating_sub(1);
         match key_name(&key).as_str() {
             "esc" | "q" | "ctrl+c" => self.shelf_open = false,
-            "n" => self.start_new_shelf(),
+            "n" => self.start_shelf_form(None),
+            "e" => self.edit_shelf_row(),
             "enter" => {
                 self.shelf_open = false;
                 if let Some(&target) = rows.get(self.shelf_idx) {
@@ -1794,75 +1812,139 @@ impl App {
         }
     }
 
-    /// Start naming a shelf whose query is the current filter.
-    fn start_new_shelf(&mut self) {
-        if self.filter.trim().is_empty() {
-            self.set_status(
-                "filter the books first: a new shelf saves the current filter",
-                StatusKind::Err,
-            );
-            return;
-        }
-        self.shelf_name.set_value("");
-        self.shelf_new = true;
+    /// Start the name-and-query form, for a new shelf or for `edit`.
+    fn start_shelf_form(&mut self, edit: Option<usize>) {
+        let (name, query) = match edit {
+            Some(idx) => {
+                let Some(shelf) = self.shelves.get(idx) else {
+                    return;
+                };
+                (shelf.name.clone(), shelf.query.clone())
+            }
+            None => {
+                let query = self.filter.trim().to_owned();
+                if query.is_empty() {
+                    self.set_status(
+                        "filter the books first: a new shelf saves the current filter",
+                        StatusKind::Err,
+                    );
+                    return;
+                }
+                (String::new(), query)
+            }
+        };
+        self.shelf_name.set_value(&name);
+        self.shelf_query.set_value(&query);
+        self.shelf_focus = ShelfField::Name;
+        self.shelf_edit = edit;
+        self.shelf_prompt = true;
         self.status.clear();
     }
 
-    fn update_shelf_new(&mut self, key: KeyEvent) {
+    /// Open the form on the highlighted shelf of the picker.
+    fn edit_shelf_row(&mut self) {
+        let rows = self.shelf_rows();
+        let Some(&idx) = rows.get(self.shelf_idx) else {
+            return;
+        };
+        self.start_shelf_form(Some(idx));
+    }
+
+    fn update_shelf_form(&mut self, key: KeyEvent) {
         match key_name(&key).as_str() {
             "esc" | "ctrl+c" => {
-                self.shelf_new = false;
+                self.shelf_prompt = false;
+                self.shelf_edit = None;
                 self.status.clear();
             }
-            "enter" => self.save_new_shelf(),
-            _ => {
-                self.shelf_name.handle_key(key);
+            "tab" | "shift+tab" => {
+                self.shelf_focus = match self.shelf_focus {
+                    ShelfField::Name => ShelfField::Query,
+                    ShelfField::Query => ShelfField::Name,
+                };
             }
+            "enter" => self.save_shelf_form(),
+            _ => match self.shelf_focus {
+                ShelfField::Name => {
+                    self.shelf_name.handle_key(key);
+                }
+                ShelfField::Query => {
+                    self.shelf_query.handle_key(key);
+                }
+            },
         }
     }
 
-    /// Write the new shelf to the config file and add it to the picker.
-    fn save_new_shelf(&mut self) {
+    /// Write the shelf to the config file, then update the picker.
+    fn save_shelf_form(&mut self) {
         let name = self.shelf_name.value().trim().to_owned();
         if name.is_empty() {
             self.set_status("the shelf needs a name", StatusKind::Err);
             return;
         }
-        if self
-            .shelves
-            .iter()
-            .any(|shelf| shelf.name.eq_ignore_ascii_case(&name))
-        {
+        let editing = self.shelf_edit;
+        let clash = self.shelves.iter().enumerate().any(|(idx, shelf)| {
+            Some(idx) != editing && shelf.name.eq_ignore_ascii_case(&name)
+        });
+        if clash {
             self.set_status(
                 &format!("a shelf named {name:?} already exists"),
                 StatusKind::Err,
             );
             return;
         }
-        let query = self.filter.trim().to_owned();
+        let query = self.shelf_query.value().trim().to_owned();
         let Some(path) = self.options.config_path.clone() else {
             self.set_status("cannot find the config file", StatusKind::Err);
             return;
         };
-        if let Err(err) = shelves::save(&path, &name, &query) {
+        let result = match editing.and_then(|idx| self.shelves.get(idx)) {
+            Some(shelf) => shelves::edit(&path, &shelf.name, &name, &query),
+            None => shelves::save(&path, &name, &query),
+        };
+        if let Err(err) = result {
             self.set_status(&format!("shelf: {err}"), StatusKind::Err);
             return;
         }
-        self.push_shelf(Shelf {
-            name: name.clone(),
-            query,
-        });
-        self.shelf_new = false;
+        match editing {
+            Some(idx) if idx < self.shelves.len() => {
+                self.shelves[idx] = Shelf {
+                    name: name.clone(),
+                    query,
+                };
+                self.reorder_shelves();
+                self.set_status(
+                    &format!("updated shelf {name:?}"),
+                    StatusKind::Ok,
+                );
+            }
+            _ => {
+                self.push_shelf(Shelf {
+                    name: name.clone(),
+                    query,
+                });
+                self.set_status(
+                    &format!("saved shelf {name:?}"),
+                    StatusKind::Ok,
+                );
+            }
+        }
+        self.shelf_prompt = false;
+        self.shelf_edit = None;
         self.shelf_open = false;
-        self.set_status(&format!("saved shelf {name:?}"), StatusKind::Ok);
     }
 
-    /// Insert a shelf in name order.
-    fn push_shelf(&mut self, shelf: Shelf) {
-        self.shelves.push(shelf);
+    /// Sort the shelves by name and count their books again.
+    fn reorder_shelves(&mut self) {
         self.shelves
             .sort_by(|left, right| left.name.cmp(&right.name));
         self.refresh_shelf_counts();
+    }
+
+    /// Add a shelf in name order.
+    fn push_shelf(&mut self, shelf: Shelf) {
+        self.shelves.push(shelf);
+        self.reorder_shelves();
     }
 
     fn add_to_shelf(&mut self, idx: usize) {

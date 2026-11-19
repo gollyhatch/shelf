@@ -8,8 +8,8 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::app::{
-    App, Mode, Pane, ReadFilter, Row, RowKind, StatusKind, adjust_list_top,
-    clamp, entry_heights, file_count, file_name,
+    App, Mode, Pane, ReadFilter, Row, RowKind, ShelfField, StatusKind,
+    adjust_list_top, clamp, entry_heights, file_count, file_name,
 };
 use super::editor::Input;
 use super::help::HELP_ENTRIES;
@@ -1109,12 +1109,12 @@ impl App {
     }
 
     fn draw_shelf(&self, frame: &mut Frame, area: Rect) {
-        if self.shelf_new {
-            self.draw_shelf_new(frame, area);
+        if self.shelf_prompt {
+            self.draw_shelf_form(frame, area);
             return;
         }
         let height = self.body_height();
-        if height < 4 || self.width < 16 {
+        if height < 5 || self.width < 16 {
             return;
         }
         let rows = self.shelf_rows();
@@ -1169,6 +1169,10 @@ impl App {
             };
             lines.push(Line::from(Span::styled(plain, style)));
         }
+        lines.push(Line::from(Span::styled(
+            pad_right(&ellipsis(picker_hint(content_w), content_w), content_w),
+            self.styles.help,
+        )));
         self.draw_dialog(
             frame,
             area,
@@ -1178,34 +1182,44 @@ impl App {
         );
     }
 
-    /// The prompt that names a shelf for the current filter.
-    fn draw_shelf_new(&self, frame: &mut Frame, area: Rect) {
+    /// The form that names a shelf and sets its query.
+    fn draw_shelf_form(&self, frame: &mut Frame, area: Rect) {
         let height = self.body_height();
-        if height < 5 || self.width < 16 {
+        if height < 6 || self.width < 16 {
             return;
         }
         let content_w = clamp(self.width.saturating_sub(6), 20, 72);
-        let query = ellipsis(self.filter.trim(), content_w.saturating_sub(9));
-        let hint = pad_right(
-            &ellipsis("enter save · esc cancel", content_w),
-            content_w,
-        );
+        let title = if self.shelf_edit.is_some() {
+            "Edit shelf"
+        } else {
+            "New shelf"
+        };
+        let hint = if content_w >= 38 {
+            "tab switch · enter save · esc cancel"
+        } else {
+            "enter save · esc cancel"
+        };
         let lines = vec![
             Line::from(Span::styled(
-                pad_right(&ellipsis("New shelf", content_w), content_w),
+                pad_right(&ellipsis(title, content_w), content_w),
                 self.styles.help_title,
             )),
-            self.field_line(
+            self.form_line(
                 &self.shelf_name,
-                "  name  › ",
-                self.styles.label,
+                "name",
+                self.shelf_focus == ShelfField::Name,
                 content_w,
             ),
-            Line::from(vec![
-                Span::styled("  query   ", self.styles.label),
-                Span::styled(query, self.styles.value),
-            ]),
-            Line::from(Span::styled(hint, self.styles.help)),
+            self.form_line(
+                &self.shelf_query,
+                "query",
+                self.shelf_focus == ShelfField::Query,
+                content_w,
+            ),
+            Line::from(Span::styled(
+                pad_right(&ellipsis(hint, content_w), content_w),
+                self.styles.help,
+            )),
         ];
         self.draw_dialog(
             frame,
@@ -1214,6 +1228,27 @@ impl App {
             lines,
             self.styles.border_focused,
         );
+    }
+
+    /// One labelled form field; only the focused field shows a cursor.
+    fn form_line(
+        &self,
+        input: &Input,
+        label: &str,
+        focused: bool,
+        width: usize,
+    ) -> Line<'static> {
+        let marker = if focused { "› " } else { "  " };
+        let prefix = format!("{marker}{label:<5} › ");
+        if focused {
+            return self.field_line(input, &prefix, self.styles.label, width);
+        }
+        let used = UnicodeWidthStr::width(prefix.as_str());
+        let value = ellipsis(&input.value(), width.saturating_sub(used));
+        Line::from(vec![
+            Span::styled(prefix, self.styles.label),
+            Span::styled(value, self.styles.value),
+        ])
     }
 
     fn draw_confirm(&self, frame: &mut Frame, area: Rect) {
@@ -1425,6 +1460,10 @@ impl App {
     }
 
     fn draw_footer(&self, frame: &mut Frame, area: Rect) {
+        if self.shelf_open {
+            // The shelf dialogs show their own key hints.
+            return;
+        }
         let bindings: Vec<(&str, &str)> = if self.help_open {
             vec![("?/esc", "close"), ("↑↓", "scroll"), ("pgup/pgdn", "page")]
         } else if self.confirm_delete {
@@ -1433,15 +1472,6 @@ impl App {
             vec![("↑↓", "choose"), ("enter", "apply"), ("esc", "cancel")]
         } else if self.theme_open {
             vec![("↑↓", "preview"), ("enter", "apply"), ("esc", "cancel")]
-        } else if self.shelf_new {
-            vec![("enter", "save"), ("esc", "cancel")]
-        } else if self.shelf_open {
-            vec![
-                ("↑↓", "choose"),
-                ("enter", "apply"),
-                ("n", "new"),
-                ("esc", "cancel"),
-            ]
         } else if self.online_open {
             vec![
                 ("space", "toggle"),
@@ -1493,6 +1523,17 @@ impl App {
             Paragraph::new(fit_bindings(&self.styles, self.width, &bindings)),
             area,
         );
+    }
+}
+
+/// The picker's key hints, shortened when the dialog is narrow.
+fn picker_hint(content_w: usize) -> &'static str {
+    if content_w >= 56 {
+        "↑↓ choose · enter apply · n new · e edit · esc cancel"
+    } else if content_w >= 34 {
+        "enter apply · n new · e edit"
+    } else {
+        "enter apply · n new"
     }
 }
 
