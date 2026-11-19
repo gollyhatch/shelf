@@ -1346,11 +1346,11 @@ impl App {
                 ("q", "quit"),
             ]
         };
-    frame.render_widget(
-        Paragraph::new(fit_bindings(&self.styles, self.width, &bindings)),
-        area,
-    );
-}
+        frame.render_widget(
+            Paragraph::new(fit_bindings(&self.styles, self.width, &bindings)),
+            area,
+        );
+    }
 }
 
 /// One display row of the multi-line editor: the logical line it comes from,
@@ -1396,7 +1396,8 @@ fn area_rows(
                 end = start + 1;
             }
             if end < line.len() {
-                if let Some(space) = (start..end).rev().find(|&i| line[i] == ' ')
+                if let Some(space) =
+                    (start..end).rev().find(|&i| line[i] == ' ')
                 {
                     end = space + 1;
                 }
@@ -1414,9 +1415,7 @@ fn area_rows(
         // A cursor that sits past a full row needs a cell of its own.
         if r == cursor.0
             && cursor.1 == line.len()
-            && rows
-                .last()
-                .is_some_and(|row| width_of(&row.chars) >= width)
+            && rows.last().is_some_and(|row| width_of(&row.chars) >= width)
         {
             rows.push(AreaRow {
                 row: r,

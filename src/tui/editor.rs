@@ -2,6 +2,30 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+/// Index of the start of the word before `from`.
+fn word_left(chars: &[char], from: usize) -> usize {
+    let mut i = from.min(chars.len());
+    while i > 0 && chars[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    while i > 0 && !chars[i - 1].is_whitespace() {
+        i -= 1;
+    }
+    i
+}
+
+/// Index just past the whitespace that follows the word at `from`.
+fn word_right(chars: &[char], from: usize) -> usize {
+    let mut i = from.min(chars.len());
+    while i < chars.len() && !chars[i].is_whitespace() {
+        i += 1;
+    }
+    while i < chars.len() && chars[i].is_whitespace() {
+        i += 1;
+    }
+    i
+}
+
 /// Editing state for a single line of text.
 #[derive(Clone, Debug, Default)]
 pub struct Input {
@@ -42,13 +66,7 @@ impl Input {
     }
 
     fn delete_word_left(&mut self) {
-        let mut start = self.cursor;
-        while start > 0 && self.chars[start - 1].is_whitespace() {
-            start -= 1;
-        }
-        while start > 0 && !self.chars[start - 1].is_whitespace() {
-            start -= 1;
-        }
+        let start = word_left(&self.chars, self.cursor);
         self.chars.drain(start..self.cursor);
         self.cursor = start;
     }
@@ -63,31 +81,17 @@ impl Input {
     }
 
     fn move_word_left(&mut self) {
-        let mut i = self.cursor;
-        while i > 0 && self.chars[i - 1].is_whitespace() {
-            i -= 1;
-        }
-        while i > 0 && !self.chars[i - 1].is_whitespace() {
-            i -= 1;
-        }
-        self.cursor = i;
+        self.cursor = word_left(&self.chars, self.cursor);
     }
 
     fn move_word_right(&mut self) {
-        let len = self.chars.len();
-        let mut i = self.cursor;
-        while i < len && !self.chars[i].is_whitespace() {
-            i += 1;
-        }
-        while i < len && self.chars[i].is_whitespace() {
-            i += 1;
-        }
-        self.cursor = i;
+        self.cursor = word_right(&self.chars, self.cursor);
     }
 
     /// Apply a key press. Returns whether the key was consumed.
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
         match key.code {
             KeyCode::Char(c) if ctrl => match c.to_ascii_lowercase() {
                 'w' => self.delete_word_left(),
@@ -97,13 +101,12 @@ impl Input {
                 'e' => self.cursor = self.chars.len(),
                 _ => return false,
             },
-            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::ALT) => {
-                self.insert_char(c)
-            }
+            KeyCode::Char(c) if !alt => self.insert_char(c),
+            KeyCode::Backspace if alt => self.delete_word_left(),
             KeyCode::Backspace => self.backspace(),
             KeyCode::Delete => self.delete(),
-            KeyCode::Left if ctrl => self.move_word_left(),
-            KeyCode::Right if ctrl => self.move_word_right(),
+            KeyCode::Left if ctrl || alt => self.move_word_left(),
+            KeyCode::Right if ctrl || alt => self.move_word_right(),
             KeyCode::Left => self.cursor = self.cursor.saturating_sub(1),
             KeyCode::Right => {
                 self.cursor = (self.cursor + 1).min(self.chars.len())
@@ -212,17 +215,50 @@ impl TextArea {
         }
     }
 
+    fn delete_word_left(&mut self) {
+        let line = &mut self.lines[self.row];
+        let start = word_left(line, self.col);
+        line.drain(start..self.col);
+        self.col = start;
+    }
+
+    fn delete_to_line_start(&mut self) {
+        self.lines[self.row].drain(..self.col);
+        self.col = 0;
+    }
+
+    fn delete_to_line_end(&mut self) {
+        self.lines[self.row].truncate(self.col);
+    }
+
+    fn move_word_left(&mut self) {
+        self.col = word_left(&self.lines[self.row], self.col);
+    }
+
+    fn move_word_right(&mut self) {
+        self.col = word_right(&self.lines[self.row], self.col);
+    }
+
     /// Apply a key press. Returns whether the key was consumed.
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
         match key.code {
-            KeyCode::Char(c)
-                if !key.modifiers.contains(KeyModifiers::CONTROL) =>
-            {
-                self.insert_char(c)
-            }
+            KeyCode::Char(c) if ctrl => match c.to_ascii_lowercase() {
+                'w' => self.delete_word_left(),
+                'u' => self.delete_to_line_start(),
+                'k' => self.delete_to_line_end(),
+                'a' => self.col = 0,
+                'e' => self.col = self.lines[self.row].len(),
+                _ => return false,
+            },
+            KeyCode::Char(c) if !ctrl => self.insert_char(c),
             KeyCode::Enter => self.insert_newline(),
+            KeyCode::Backspace if alt => self.delete_word_left(),
             KeyCode::Backspace => self.backspace(),
             KeyCode::Delete => self.delete(),
+            KeyCode::Left if ctrl || alt => self.move_word_left(),
+            KeyCode::Right if ctrl || alt => self.move_word_right(),
             KeyCode::Left => self.col = self.col.saturating_sub(1),
             KeyCode::Right => {
                 self.col = (self.col + 1).min(self.lines[self.row].len())
@@ -243,6 +279,14 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::CONTROL)
+    }
+
+    fn alt(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::ALT)
     }
 
     #[test]
@@ -268,6 +312,56 @@ mod tests {
         assert_eq!(text, "hij");
         assert_eq!(cursor, 3);
         assert!(!more);
+    }
+
+    #[test]
+    fn input_word_keys() {
+        let mut input = Input::default();
+        input.set_value("one two three");
+        input.handle_key(alt(KeyCode::Left));
+        assert_eq!(input.cursor, 8, "alt+left moves by word");
+        input.handle_key(ctrl(KeyCode::Left));
+        assert_eq!(input.cursor, 4, "ctrl+left moves by word");
+        input.handle_key(alt(KeyCode::Right));
+        assert_eq!(input.cursor, 8, "alt+right moves by word");
+        input.handle_key(ctrl(KeyCode::Char('w')));
+        assert_eq!(input.value(), "one three", "ctrl+w drops the word before");
+        assert_eq!(input.cursor, 4);
+        input.handle_key(alt(KeyCode::Backspace));
+        assert_eq!(input.value(), "three", "alt+backspace does the same");
+        assert_eq!(input.cursor, 0);
+        input.handle_key(ctrl(KeyCode::Char('u')));
+        assert_eq!(input.value(), "three", "nothing left to cut");
+        input.handle_key(ctrl(KeyCode::Char('k')));
+        assert_eq!(input.value(), "");
+    }
+
+    #[test]
+    fn textarea_word_keys() {
+        let mut area = TextArea::from_value("one two three");
+        area.handle_key(alt(KeyCode::Left));
+        assert_eq!(area.cursor(), (0, 8));
+        area.handle_key(ctrl(KeyCode::Left));
+        assert_eq!(area.cursor(), (0, 4));
+        area.handle_key(ctrl(KeyCode::Char('w')));
+        assert_eq!(area.value(), "two three");
+        area.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        area.handle_key(alt(KeyCode::Backspace));
+        assert_eq!(area.value(), "two ");
+        area.handle_key(ctrl(KeyCode::Char('u')));
+        assert_eq!(area.value(), "");
+    }
+
+    #[test]
+    fn textarea_word_edits_stay_on_their_line() {
+        let mut area = TextArea::from_value("alpha beta\ngamma delta");
+        area.handle_key(key(KeyCode::Up));
+        assert_eq!(area.cursor(), (0, 10));
+        area.handle_key(ctrl(KeyCode::Char('u')));
+        assert_eq!(area.value(), "\ngamma delta");
+        assert_eq!(area.cursor(), (0, 0));
+        area.handle_key(ctrl(KeyCode::Char('u')));
+        assert_eq!(area.value(), "\ngamma delta", "nothing left to cut");
     }
 
     #[test]

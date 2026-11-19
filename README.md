@@ -243,7 +243,10 @@ This sends the selected book's metadata to Google Books. Set
 `google_books_api_key` in the config to avoid the unauthenticated quota and
 `429` responses.
 
-In the editor, `enter` saves and `esc` cancels. The description uses a
+In the editor, `enter` saves and `esc` cancels. Every text field takes the
+usual word keys: `ctrl+w` or `alt+backspace` deletes the word before the
+cursor, `ctrl+u` deletes to the start of the line and `ctrl+k` to its end, and
+`ctrl+←`/`ctrl+→` or `alt+←`/`alt+→` move by word. The description uses a
 multi-line box: long text wraps inside the box, `enter` inserts a newline and
 `ctrl+s` saves. Several authors can be added at once separated by `;`.
 

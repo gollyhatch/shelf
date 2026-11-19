@@ -27,6 +27,10 @@ fn ctrl(c: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
 }
 
+fn alt(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::ALT)
+}
+
 fn options() -> RunOptions {
     RunOptions {
         theme: "gruvbox-dark".into(),
@@ -923,9 +927,10 @@ fn theme_selector_floats_over_the_shelf() {
 fn wrapped_description_continuation_aligns() {
     let mut book =
         entry("dune.epub", "Dune", "Frank Herbert", "Dune", "1", true);
-    book.metadata.description = "A novel about a desert planet, its people and \
+    book.metadata.description =
+        "A novel about a desert planet, its people and \
          the generations who fight over it after the machines fall silent."
-        .into();
+            .into();
     let mut app = app_with(vec![book], options());
     let (buffer, area) = render_buffer(&mut app, 120, 40);
     let rows: Vec<String> = (0..area.height)
@@ -990,6 +995,37 @@ fn editor_box(view: &str) -> String {
 }
 
 #[test]
+fn description_editor_takes_word_keys() {
+    let mut app = edit_description("one two three");
+    app.handle_key(ctrl('w'));
+    assert_eq!(app.area.value(), "one two ");
+    app.handle_key(alt(KeyCode::Left));
+    assert_eq!(app.area.cursor(), (0, 4), "alt+left moves by word");
+    app.handle_key(alt(KeyCode::Right));
+    assert_eq!(app.area.cursor(), (0, 8), "alt+right moves by word");
+    app.handle_key(alt(KeyCode::Left));
+    app.handle_key(ctrl('u'));
+    assert_eq!(app.area.value(), "two ", "ctrl+u cuts to the line start");
+}
+
+#[test]
+fn search_takes_word_keys() {
+    let mut app = app_with(entries(), options());
+    app.handle_key(ch('/'));
+    for c in "dune frank".chars() {
+        app.handle_key(ch(c));
+    }
+    assert_eq!(app.search.value(), "dune frank");
+    app.handle_key(ctrl('w'));
+    assert_eq!(app.search.value(), "dune ", "ctrl+w drops the word before");
+    app.handle_key(alt(KeyCode::Left));
+    app.handle_key(ctrl('u'));
+    assert_eq!(app.search.value(), "dune ", "already at the start");
+    app.handle_key(ctrl('k'));
+    assert_eq!(app.search.value(), "", "ctrl+k cuts to the end");
+}
+
+#[test]
 fn editor_shows_a_wrapped_description() {
     let mut app = edit_description(
         "On the desert planet Arrakis, Paul Atreides becomes the figure at \
@@ -1010,6 +1046,9 @@ fn editor_keeps_a_long_description_end_in_view() {
     let mut app = edit_description(&text);
     let view = render(&mut app, 100, 30);
     let editor = editor_box(&view);
-    assert!(editor.contains("TAILWORD"), "tail not in the editor:\n{editor}");
+    assert!(
+        editor.contains("TAILWORD"),
+        "tail not in the editor:\n{editor}"
+    );
     assert_eq!(app.area.value(), text);
 }
