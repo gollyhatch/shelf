@@ -56,6 +56,7 @@ library = "/path/to/books"
 viewer = "zathura"
 sort = "title"
 theme = "gruvbox-dark"
+browser = "firefox"
 search_url = "https://www.google.com/search?q=%a+%t"
 google_books_api_key = "your-google-books-api-key"
 rename_format = "%a - %t.epub"
@@ -82,11 +83,16 @@ set, `ctrl+o` does nothing. It may include arguments
 `PATH` (or use an absolute path), and the selected EPUB path is appended as the
 final argument.
 
-`search_url` is opened in the system's default browser with `ctrl+k`. It uses
-the same placeholders as `rename_format`, e.g. `%a` for author, `%t` for title,
-`%s` for series, `%i` for identifier and `%title`/`%author` for the long field
-names. Values are URL-escaped. When the setting is absent, `ctrl+k` does
-nothing.
+`browser` is an optional command used to open URLs. When it is set, it replaces
+`xdg-open`; it may include arguments (`browser = "firefox --new-window"`), and
+the URL is appended as the final argument. When it is unset, shelf uses
+`xdg-open`.
+
+`search_url` is opened in the configured browser (or `xdg-open`) with `ctrl+k`.
+It uses the same placeholders as `rename_format`, e.g. `%a` for author, `%t`
+for title, `%s` for series, `%i` for identifier and `%title`/`%author` for the
+long field names. Values are URL-escaped. When the setting is absent, `ctrl+k`
+does nothing.
 
 `theme` selects the TUI color palette. Every theme that ships with opaline is
 available by its id: `gruvbox-dark` is the default, and ids such as
@@ -206,7 +212,7 @@ AND binds tighter than OR, so `author:herbert read:no OR title:dune` means
 | `n` | in the shelf picker: save the current filter as a new shelf |
 | `e` | in the shelf picker: edit the selected shelf |
 | `ctrl+o` | open the book under the cursor in the configured viewer |
-| `ctrl+k` | open the configured `search_url` in the default browser |
+| `ctrl+k` | open the configured `search_url` in the configured browser |
 | `ctrl+t` | open the theme selector (preview with `↑`/`↓`, `enter` applies) |
 | `?` | open the keyboard help dialog |
 | `R` | rescan the directory |

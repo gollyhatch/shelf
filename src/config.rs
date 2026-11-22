@@ -22,7 +22,10 @@ pub struct Config {
     pub viewer: String,
     /// Default Books pane ordering, e.g. "title" or "date:desc".
     pub sort: String,
-    /// Opened in the default browser for the selected book.
+    /// Command used to open a URL. When set, it replaces `xdg-open`; the URL
+    /// is appended as the final argument.
+    pub browser: String,
+    /// Opened in the configured browser for the selected book.
     pub search_url: String,
     /// Selects the TUI color palette: any opaline theme id. The default is
     /// "gruvbox-dark".
@@ -94,6 +97,7 @@ pub fn load_file(path: &Path) -> Result<Config> {
     cfg.library = expand_home(cfg.library.trim());
     cfg.viewer = cfg.viewer.trim().to_owned();
     cfg.sort = cfg.sort.trim().to_owned();
+    cfg.browser = cfg.browser.trim().to_owned();
     cfg.search_url = cfg.search_url.trim().to_owned();
     cfg.theme = cfg.theme.trim().to_owned();
     cfg.google_books_api_key = cfg.google_books_api_key.trim().to_owned();
@@ -138,12 +142,13 @@ mod tests {
         let path = dir.path().join("config.toml");
         fs::write(
             &path,
-            "library = \" /books \"\nviewer = \" zathura \"\nslugify = true\nsluggify = true\n",
+            "library = \" /books \"\nviewer = \" zathura \"\nbrowser = \" firefox --new-window \"\nslugify = true\nsluggify = true\n",
         )
         .unwrap();
         let cfg = load_file(&path).unwrap();
         assert_eq!(cfg.library, "/books");
         assert_eq!(cfg.viewer, "zathura");
+        assert_eq!(cfg.browser, "firefox --new-window");
         assert!(cfg.slugify_rename());
     }
 

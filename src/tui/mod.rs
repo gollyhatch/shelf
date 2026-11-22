@@ -32,6 +32,8 @@ pub struct RunOptions {
     pub google_books_api_key: String,
     pub library: String,
     pub sort: String,
+    /// Browser command for URLs; empty falls back to `xdg-open`.
+    pub browser: String,
     pub search_url: String,
     pub rename: NameRule,
     pub move_rule: Option<NameRule>,

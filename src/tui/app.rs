@@ -149,7 +149,7 @@ pub(crate) const BULK_FIELDS: [Field; 7] = [
 pub(crate) type LookupFn =
     std::sync::Arc<dyn Fn(&Metadata) -> Result<Metadata> + Send + Sync>;
 
-/// A pluggable URL opener, so tests can avoid spawning `xdg-open`.
+/// A pluggable URL opener, so tests can avoid spawning a browser.
 pub(crate) type BrowserFn =
     std::sync::Arc<dyn Fn(&str) -> Result<()> + Send + Sync>;
 
@@ -313,6 +313,7 @@ impl App {
         let loaded_count = entries.as_ref().map_or(0, Vec::len);
         let library_path = options.library.clone();
         let shelves = options.shelves.clone();
+        let open_browser = browser_opener(&options.browser);
         let mut app = Self {
             dir,
             options,
@@ -390,7 +391,7 @@ impl App {
             theme_name,
             quit: false,
             pending_viewer: None,
-            open_browser: std::sync::Arc::new(default_open_browser),
+            open_browser,
             tx,
             rx,
         };
@@ -2701,6 +2702,41 @@ fn default_open_browser(target: &str) -> Result<()> {
     } else {
         bail!("browser: xdg-open exited with {status}")
     }
+}
+
+/// The URL opener: the configured `browser` command when set, otherwise
+/// `xdg-open`.
+fn browser_opener(configured: &str) -> BrowserFn {
+    if configured.trim().is_empty() {
+        return std::sync::Arc::new(default_open_browser);
+    }
+    let command = configured.to_owned();
+    std::sync::Arc::new(move |target| run_browser(&command, target))
+}
+
+fn run_browser(command: &str, target: &str) -> Result<()> {
+    let mut command = browser_command(command, target)?;
+    let program = command.get_program().to_string_lossy().into_owned();
+    let status = command
+        .status()
+        .map_err(|err| anyhow!("browser: {err}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        bail!("browser: {program} exited with {status}")
+    }
+}
+
+/// Build the configured browser command with `target` appended last.
+pub(super) fn browser_command(command: &str, target: &str) -> Result<Command> {
+    let args = shlex::split(command)
+        .ok_or_else(|| anyhow!("browser: parse browser: unmatched quote"))?;
+    let Some((program, rest)) = args.split_first() else {
+        bail!("browser: browser is empty");
+    };
+    let mut command = Command::new(program);
+    command.args(rest).arg(target);
+    Ok(command)
 }
 
 /// Compare the online result with the current metadata.

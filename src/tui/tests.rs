@@ -39,6 +39,7 @@ fn options() -> RunOptions {
         google_books_api_key: String::new(),
         library: String::new(),
         sort: String::new(),
+        browser: String::new(),
         search_url: String::new(),
         rename: NameRule::new("", false),
         move_rule: None,
@@ -548,6 +549,28 @@ fn viewer_command_is_built_with_path_last() {
     assert_eq!(args.len(), 2);
     assert_eq!(args[0], "--number");
     assert!(args[1].ends_with("dune.epub"));
+}
+
+#[test]
+fn browser_command_is_built_with_url_last() {
+    let command = super::app::browser_command(
+        "firefox --new-window",
+        "https://example.com",
+    )
+    .expect("browser command");
+    assert_eq!(command.get_program(), "firefox");
+    let args: Vec<String> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(args, ["--new-window", "https://example.com"]);
+}
+
+#[test]
+fn browser_command_rejects_bad_quotes() {
+    let result =
+        super::app::browser_command("firefox '", "https://example.com");
+    assert!(result.is_err());
 }
 
 #[test]
