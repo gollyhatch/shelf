@@ -378,8 +378,9 @@ pub fn move_rule(format: &str, slugify: bool) -> Option<NameRule> {
 }
 
 /// Expand metadata placeholders in a search URL. Values are query-escaped so
-/// spaces and punctuation are safe in a URL. Unknown percent sequences are left
-/// alone, so ordinary percent-encoded URLs work.
+/// spaces and punctuation are safe in a URL. `%q` is shorthand for the author
+/// and title together (`%a %t`). Unknown percent sequences are left alone, so
+/// ordinary percent-encoded URLs work.
 pub fn expand_search_url(pattern: &str, meta: &Metadata) -> String {
     let bytes = pattern.as_bytes();
     let mut out = String::with_capacity(pattern.len());
@@ -407,6 +408,16 @@ pub fn expand_search_url(pattern: &str, meta: &Metadata) -> String {
             i += 2;
             continue;
         }
+        if bytes[i + 1] == b'q' && ends_search_q(bytes.get(i + 2)) {
+            let value = format!(
+                "{} {}",
+                meta.get(Field::Author),
+                meta.get(Field::Title)
+            );
+            out.push_str(&query_escape(&value));
+            i += 2;
+            continue;
+        }
         match format_verb_at(pattern, i + 1) {
             Some((field, end)) => {
                 out.push_str(&query_escape(&meta.get(field)));
@@ -419,6 +430,15 @@ pub fn expand_search_url(pattern: &str, meta: &Metadata) -> String {
         }
     }
     out
+}
+
+/// Whether `%q` ends at the next byte. Mirrors `format_verb_at`: a trailing `-`
+/// is punctuation, and `%query` is not the `%q` placeholder.
+fn ends_search_q(next: Option<&u8>) -> bool {
+    match next {
+        Some(&c) => !is_format_verb_char(c) || c == b'-',
+        None => true,
+    }
 }
 
 /// `application/x-www-form-urlencoded` escaping, as used by Go's
@@ -545,5 +565,22 @@ mod tests {
             "https://x/?q=Frank+Herbert+Dune&s=Dune"
         );
         assert_eq!(expand_search_url("100%25 %zz", &e.metadata), "100%25 %zz");
+    }
+
+    #[test]
+    fn search_url_q_is_author_and_title() {
+        let e = entry("Dune", "Frank Herbert");
+        assert_eq!(
+            expand_search_url("https://x/?q=%q", &e.metadata),
+            "https://x/?q=Frank+Herbert+Dune"
+        );
+        assert_eq!(
+            expand_search_url("https://x/?q=%q-", &e.metadata),
+            "https://x/?q=Frank+Herbert+Dune-"
+        );
+        assert_eq!(
+            expand_search_url("https://x/?q=%query", &e.metadata),
+            "https://x/?q=%query"
+        );
     }
 }

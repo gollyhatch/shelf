@@ -91,8 +91,9 @@ the URL is appended as the final argument. When it is unset, shelf uses
 `search_url` is opened in the configured browser (or `xdg-open`) with `ctrl+k`.
 It uses the same placeholders as `rename_format`, e.g. `%a` for author, `%t`
 for title, `%s` for series, `%i` for identifier and `%title`/`%author` for the
-long field names. Values are URL-escaped. When the setting is absent, `ctrl+k`
-does nothing.
+long field names. `%q` is shorthand for the author and title together
+(`%a %t`). Values are URL-escaped. When the setting is absent, `ctrl+k` does
+nothing.
 
 `theme` selects the TUI color palette. Every theme that ships with opaline is
 available by its id: `gruvbox-dark` is the default, and ids such as
