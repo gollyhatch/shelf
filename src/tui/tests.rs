@@ -574,6 +574,37 @@ fn browser_command_rejects_bad_quotes() {
 }
 
 #[test]
+fn browser_launch_detaches_stdio_and_does_not_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let probe = dir.path().join("probe.sh");
+    let fds = dir.path().join("fds");
+    std::fs::write(
+        &probe,
+        "#!/bin/sh\n\
+         a=other; [ /proc/self/fd/0 -ef /dev/null ] && a=null\n\
+         b=other; [ /proc/self/fd/1 -ef /dev/null ] && b=null\n\
+         c=other; [ /proc/self/fd/2 -ef /dev/null ] && c=null\n\
+         printf '%s %s %s\\n' \"$a\" \"$b\" \"$c\" > \"$1\"\n\
+         sleep 2\n",
+    )
+    .unwrap();
+    let command = format!("sh {} {}", probe.display(), fds.display());
+    let started = Instant::now();
+    super::app::run_browser(&command, "https://example.com")
+        .expect("browser");
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "waited for the browser to exit"
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !fds.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let opened = std::fs::read_to_string(&fds).expect("fd probe");
+    assert_eq!(opened, "null null null\n");
+}
+
+#[test]
 fn scan_streams_books_into_the_list() {
     let dir = tempfile::tempdir().unwrap();
     for i in 0..3 {

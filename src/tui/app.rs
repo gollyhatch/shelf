@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
@@ -2693,8 +2693,10 @@ impl App {
 }
 
 fn default_open_browser(target: &str) -> Result<()> {
-    let status = Command::new("xdg-open")
-        .arg(target)
+    let mut command = Command::new("xdg-open");
+    command.arg(target);
+    detach_stdio(&mut command);
+    let status = command
         .status()
         .map_err(|err| anyhow!("browser: {err}"))?;
     if status.success() {
@@ -2702,6 +2704,16 @@ fn default_open_browser(target: &str) -> Result<()> {
     } else {
         bail!("browser: xdg-open exited with {status}")
     }
+}
+
+/// Keep a launched GUI program off the TUI's terminal. Its diagnostics would
+/// otherwise scribble over the alternate screen, and it has no use for the
+/// keyboard.
+fn detach_stdio(command: &mut Command) {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
 }
 
 /// The URL opener: the configured `browser` command when set, otherwise
@@ -2714,17 +2726,19 @@ fn browser_opener(configured: &str) -> BrowserFn {
     std::sync::Arc::new(move |target| run_browser(&command, target))
 }
 
-fn run_browser(command: &str, target: &str) -> Result<()> {
+pub(super) fn run_browser(command: &str, target: &str) -> Result<()> {
     let mut command = browser_command(command, target)?;
-    let program = command.get_program().to_string_lossy().into_owned();
-    let status = command
-        .status()
+    detach_stdio(&mut command);
+    let mut child = command
+        .spawn()
         .map_err(|err| anyhow!("browser: {err}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        bail!("browser: {program} exited with {status}")
-    }
+    // Do not wait for the browser: it may become the primary instance and run
+    // until the user closes it. Reap the launcher in the background so a
+    // short-lived forwarder does not linger as a zombie.
+    thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 /// Build the configured browser command with `target` appended last.
