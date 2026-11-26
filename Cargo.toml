@@ -16,6 +16,7 @@ clap_mangen = "0.2"
 copypasta = { version = "0.10", default-features = false, features = ["x11"] }
 crossterm = "0.29"
 html-escape = "0.2"
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "webp"] }
 opaline = "0.4.2"
 quick-xml = "0.42"
 ratatui = "0.30"

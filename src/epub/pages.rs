@@ -399,21 +399,32 @@ fn run_count(text: &str) -> u64 {
 }
 
 /// Read a manifest entry, trying the percent-decoded name first.
-fn read_entry_opt(
+pub(super) fn read_entry_opt(
     archive: &mut ZipArchive<File>,
     opf_dir: &str,
     href: &str,
 ) -> Option<Vec<u8>> {
+    read_entry_opt_with_limit(
+        archive,
+        opf_dir,
+        href,
+        MAX_METADATA_ENTRY,
+    )
+}
+
+pub(super) fn read_entry_opt_with_limit(
+    archive: &mut ZipArchive<File>,
+    opf_dir: &str,
+    href: &str,
+    limit: u64,
+) -> Option<Vec<u8>> {
     let decoded = resolve_href(opf_dir, href, true);
-    if let Ok(data) =
-        read_archive_file(archive, &decoded, MAX_METADATA_ENTRY)
-    {
+    if let Ok(data) = read_archive_file(archive, &decoded, limit) {
         return Some(data);
     }
     let raw = resolve_href(opf_dir, href, false);
     if raw != decoded
-        && let Ok(data) =
-            read_archive_file(archive, &raw, MAX_METADATA_ENTRY)
+        && let Ok(data) = read_archive_file(archive, &raw, limit)
     {
         return Some(data);
     }

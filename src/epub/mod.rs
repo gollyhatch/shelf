@@ -8,6 +8,7 @@
 //! namespace prefixes, comments and ordering.
 
 mod archive;
+mod cover;
 mod escaping;
 mod meta_repair;
 mod metadata;
@@ -26,6 +27,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
 use zip::ZipArchive;
 
+pub use cover::read_cover;
 pub use metadata::{
     Creator, Field, Metadata, parse_creator, parse_creator_list,
     parse_read_status, split_list,
@@ -432,6 +434,17 @@ pub mod test_support {
     pub fn write_entries(
         entries: &[(&str, &str)],
     ) -> (tempfile::TempDir, PathBuf) {
+        let binary: Vec<(&str, &[u8])> = entries
+            .iter()
+            .map(|(name, content)| (*name, content.as_bytes()))
+            .collect();
+        write_binary_entries(&binary)
+    }
+
+    /// Build an EPUB from entries that contain binary data, such as a cover.
+    pub fn write_binary_entries(
+        entries: &[(&str, &[u8])],
+    ) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("book.epub");
         let mut bytes = Vec::new();
@@ -449,7 +462,7 @@ pub mod test_support {
                 writer
                     .start_file(*name, SimpleFileOptions::default())
                     .unwrap();
-                writer.write_all(content.as_bytes()).unwrap();
+                writer.write_all(content).unwrap();
             }
             writer.finish().unwrap();
         }

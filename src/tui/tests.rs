@@ -42,6 +42,7 @@ fn options() -> RunOptions {
         sort: String::new(),
         write_page_estimates: false,
         copy_format: "%a: %t".into(),
+        cover_pane: false,
         browser: String::new(),
         search_url: String::new(),
         rename: NameRule::new("", false),
@@ -316,22 +317,113 @@ fn y_uses_configured_copy_format() {
 }
 
 #[test]
+fn c_toggles_cover_pane() {
+    let mut app = app_with(entries(), options());
+    assert!(!app.cover_open);
+    app.handle_key(ch('C'));
+    assert!(app.cover_open);
+    assert_eq!(app.status, "cover pane on");
+    app.handle_key(ch('C'));
+    assert!(!app.cover_open);
+    assert_eq!(app.status, "cover pane off");
+}
+
+#[test]
+fn cover_pane_starts_open_from_config() {
+    let mut opts = options();
+    opts.cover_pane = true;
+    let app = app_with(entries(), opts);
+    assert!(app.cover_open);
+}
+
+#[test]
+fn cover_pane_renders_image() {
+    let mut opts = options();
+    opts.cover_pane = true;
+    let mut app = app_with(entries(), opts);
+    let path = app.selected().unwrap().path;
+    app.covers.insert(
+        path,
+        Some(image::RgbaImage::from_pixel(
+            4,
+            4,
+            image::Rgba([10, 20, 30, 255]),
+        )),
+    );
+    let view = render(&mut app, 120, 30);
+    assert!(view.contains("Cover"), "{view}");
+    assert!(view.contains('▀'), "{view}");
+}
+
+fn cover_epub() -> (tempfile::TempDir, PathBuf) {
+    let image = image::RgbaImage::from_pixel(4, 6, image::Rgba([20, 80, 140, 255]));
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let png = png.into_inner();
+    let opf = r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" version="3.0" unique-identifier="pub-id">
+  <metadata>
+    <dc:identifier id="pub-id">urn:isbn:1</dc:identifier>
+    <dc:title>Covered</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>
+  </manifest>
+</package>"#;
+    crate::epub::test_support::write_binary_entries(&[
+        (
+            "META-INF/container.xml",
+            crate::epub::test_support::FIXTURE_CONTAINER.as_bytes(),
+        ),
+        ("OEBPS/content.opf", opf.as_bytes()),
+        ("OEBPS/cover.png", &png),
+    ])
+}
+
+#[test]
+fn cover_pane_loads_cover_from_epub() {
+    let (dir, path) = cover_epub();
+    let mut opts = options();
+    opts.cover_pane = true;
+    let mut app = App::new(
+        dir.path().to_path_buf(),
+        Some(vec![library::load_one(&path)]),
+        opts,
+    )
+    .unwrap();
+    wait_until(&mut app, |app| {
+        app.covers.contains_key(&path)
+    });
+    assert!(app.covers[&path].is_some());
+
+    let view = render(&mut app, 120, 30);
+    assert!(view.contains("Cover"), "{view}");
+    assert!(view.contains('▀'), "{view}");
+}
+
+#[test]
 fn view_fits_small_terminals() {
-    for width in [16u16, 24, 40, 60, 83, 84, 100, 160] {
-        for height in [4u16, 6, 8, 12, 20, 40] {
-            let mut app = app_with(entries(), options());
-            let view = render(&mut app, width, height);
-            assert_eq!(
-                view.lines().count(),
-                height as usize,
-                "{width}x{height}"
-            );
-            for line in view.lines() {
-                assert!(
-                    unicode_width::UnicodeWidthStr::width(line)
-                        <= width as usize,
-                    "{width}x{height}: {line:?}"
+    for cover in [false, true] {
+        for width in [16u16, 24, 40, 60, 83, 84, 100, 160] {
+            for height in [4u16, 6, 8, 12, 20, 40] {
+                let mut app = app_with(entries(), options());
+                app.cover_open = cover;
+                let view = render(&mut app, width, height);
+                assert_eq!(
+                    view.lines().count(),
+                    height as usize,
+                    "{width}x{height} cover={cover}"
                 );
+                for line in view.lines() {
+                    assert!(
+                        unicode_width::UnicodeWidthStr::width(line)
+                            <= width as usize,
+                        "{width}x{height} cover={cover}: {line:?}"
+                    );
+                }
             }
         }
     }

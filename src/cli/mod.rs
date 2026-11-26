@@ -309,6 +309,7 @@ fn run_options(cfg: &Config) -> tui::RunOptions {
         sort: cfg.sort.clone(),
         write_page_estimates: cfg.write_page_estimates,
         copy_format: cfg.clipboard_format().to_owned(),
+        cover_pane: cfg.cover_pane,
         browser: cfg.browser.clone(),
         search_url: cfg.search_url.clone(),
         rename: NameRule::new(cfg.rename_format.clone(), slugify),

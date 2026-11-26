@@ -1,5 +1,7 @@
 //! Drawing the browser with ratatui.
 
+use image::imageops::FilterType;
+use image::{Rgba, RgbaImage};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -263,14 +265,40 @@ impl App {
         }
         if self.width >= 84 {
             let list_w = (self.width / 3) as u16;
-            let detail_w = area.width.saturating_sub(list_w + 1);
             let list_rect = Rect::new(area.x, area.y, list_w, area.height);
-            let detail_rect =
-                Rect::new(area.x + list_w + 1, area.y, detail_w, area.height);
-            self.draw_pane(frame, Pane::List, list_rect);
-            self.draw_pane(frame, Pane::Detail, detail_rect);
+            let cover_w = if self.cover_open {
+                ((self.width / 4).clamp(20, 34) as u16).min(
+                    area.width.saturating_sub(list_w + 1 + 24 + 1),
+                )
+            } else {
+                0
+            };
+            if cover_w >= 12 {
+                let detail_w = area.width - list_w - cover_w - 2;
+                let detail_rect =
+                    Rect::new(area.x + list_w + 1, area.y, detail_w, area.height);
+                let cover_rect = Rect::new(
+                    detail_rect.x + detail_w + 1,
+                    area.y,
+                    cover_w,
+                    area.height,
+                );
+                self.draw_pane(frame, Pane::List, list_rect);
+                self.draw_pane(frame, Pane::Detail, detail_rect);
+                self.draw_cover(frame, cover_rect);
+            } else {
+                let detail_w = area.width.saturating_sub(list_w + 1);
+                let detail_rect = Rect::new(
+                    area.x + list_w + 1,
+                    area.y,
+                    detail_w,
+                    area.height,
+                );
+                self.draw_pane(frame, Pane::List, list_rect);
+                self.draw_pane(frame, Pane::Detail, detail_rect);
+            }
         } else {
-            let (list_h, detail_h, _) = self.pane_heights();
+            let (list_h, detail_h, cover_h, _) = self.pane_heights();
             let list_rect =
                 Rect::new(area.x, area.y, area.width, list_h as u16);
             let detail_rect = Rect::new(
@@ -281,6 +309,15 @@ impl App {
             );
             self.draw_pane(frame, Pane::List, list_rect);
             self.draw_pane(frame, Pane::Detail, detail_rect);
+            if cover_h > 0 {
+                let cover_rect = Rect::new(
+                    area.x,
+                    area.y + (list_h + detail_h) as u16,
+                    area.width,
+                    cover_h as u16,
+                );
+                self.draw_cover(frame, cover_rect);
+            }
         }
         // The theme selector floats over the shelf, so its preview is visible
         // on the panes behind it.
@@ -351,6 +388,62 @@ impl App {
             );
         }
         frame.render_widget(Paragraph::new(Text::from(lines)), inner);
+    }
+
+    fn draw_cover(&self, frame: &mut Frame, rect: Rect) {
+        if rect.width < 6 || rect.height < 3 {
+            return;
+        }
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(self.styles.border_unfocused))
+            .padding(Padding::horizontal(1));
+        frame.render_widget(block, rect);
+
+        let inner = Rect::new(
+            rect.x + 2,
+            rect.y + 1,
+            rect.width.saturating_sub(4),
+            rect.height.saturating_sub(2),
+        );
+        if inner.width == 0 || inner.height == 0 {
+            return;
+        }
+        let mut lines = vec![Line::from(Span::styled(
+            "Cover",
+            self.styles.pane_title,
+        ))];
+        lines.extend(self.cover_lines(
+            inner.width as usize,
+            inner.height.saturating_sub(1) as usize,
+        ));
+        frame.render_widget(Paragraph::new(Text::from(lines)), inner);
+    }
+
+    fn cover_lines(&self, width: usize, height: usize) -> Vec<Line<'static>> {
+        if width == 0 || height == 0 {
+            return Vec::new();
+        }
+        let message = |text: &str| {
+            vec![Line::from(Span::styled(text.to_owned(), self.styles.empty))]
+        };
+        let Some(entry) = self.selected() else {
+            return message("no book selected");
+        };
+        if entry.error.is_some() {
+            return message("no cover");
+        }
+        match self.covers.get(&entry.path) {
+            None => message("loading…"),
+            Some(None) => message("no cover"),
+            Some(Some(image)) => cover_image_lines(
+                image,
+                width,
+                height,
+                self.styles.base.bg.unwrap_or(Color::Rgb(0, 0, 0)),
+            ),
+        }
     }
 
     fn list_lines(&self, width: usize, height: usize) -> Vec<Line<'static>> {
@@ -1526,6 +1619,94 @@ impl App {
             area,
         );
     }
+}
+
+/// Turn an image into half-block cells: the upper half is the foreground and
+/// the lower half the background, which gives two pixels per terminal row.
+fn cover_image_lines(
+    image: &RgbaImage,
+    width: usize,
+    height: usize,
+    base: Color,
+) -> Vec<Line<'static>> {
+    if width == 0 || height == 0 {
+        return Vec::new();
+    }
+    let (w, h) = fit_cover(
+        image.width(),
+        image.height(),
+        width as u32,
+        (height as u32).saturating_mul(2),
+    );
+    let scaled = image::imageops::resize(image, w, h, FilterType::Triangle);
+    let rows = (h as usize).div_ceil(2);
+    let top_pad = height.saturating_sub(rows) / 2;
+    let left_pad = width.saturating_sub(w as usize) / 2;
+
+    let mut out = Vec::with_capacity(height);
+    for _ in 0..top_pad {
+        out.push(Line::default());
+    }
+    for row in 0..rows {
+        let mut spans = Vec::with_capacity(w as usize + 1);
+        if left_pad > 0 {
+            spans.push(Span::raw(" ".repeat(left_pad)));
+        }
+        for x in 0..w {
+            let upper = scaled.get_pixel(x, row as u32 * 2);
+            let lower = if row as u32 * 2 + 1 < h {
+                scaled.get_pixel(x, row as u32 * 2 + 1)
+            } else {
+                upper
+            };
+            spans.push(Span::styled(
+                "▀",
+                Style::default()
+                    .fg(cover_color(upper, base))
+                    .bg(cover_color(lower, base)),
+            ));
+        }
+        out.push(Line::from(spans));
+    }
+    while out.len() < height {
+        out.push(Line::default());
+    }
+    out
+}
+
+/// Fit the image inside the cell grid without changing its aspect ratio.
+fn fit_cover(iw: u32, ih: u32, max_w: u32, max_h: u32) -> (u32, u32) {
+    if iw == 0 || ih == 0 || max_w == 0 || max_h == 0 {
+        return (1, 1);
+    }
+    let ratio = iw as f64 / ih as f64;
+    let mut w = max_w;
+    let mut h = (w as f64 / ratio).round().max(1.0) as u32;
+    if h > max_h {
+        h = max_h;
+        w = (h as f64 * ratio).round().max(1.0) as u32;
+    }
+    (w.clamp(1, max_w), h.clamp(1, max_h))
+}
+
+/// Composite a possibly transparent cover pixel over the theme canvas.
+fn cover_color(pixel: &Rgba<u8>, base: Color) -> Color {
+    let alpha = pixel[3] as u16;
+    if alpha == 255 {
+        return Color::Rgb(pixel[0], pixel[1], pixel[2]);
+    }
+    let (br, bg, bb) = match base {
+        Color::Rgb(r, g, b) => (r as u16, g as u16, b as u16),
+        _ => (0, 0, 0),
+    };
+    let blend = |src: u8, dst: u16| {
+        ((src as u16 * alpha + dst * (255 - alpha)) / 255) as u8
+    };
+    Color::Rgb(
+        blend(pixel[0], br),
+        blend(pixel[1], bg),
+        blend(pixel[2], bb),
+    )
 }
 
 /// The picker's key hints, shortened when the dialog is narrow.

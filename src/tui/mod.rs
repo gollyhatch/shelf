@@ -36,6 +36,8 @@ pub struct RunOptions {
     pub write_page_estimates: bool,
     /// Text copied by `y`, using the metadata placeholders.
     pub copy_format: String,
+    /// Show the cover pane when the TUI starts.
+    pub cover_pane: bool,
     /// Browser command for URLs; empty falls back to `xdg-open`.
     pub browser: String,
     pub search_url: String,

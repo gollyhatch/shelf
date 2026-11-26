@@ -8,6 +8,7 @@ use std::thread;
 
 use anyhow::{Result, anyhow, bail};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use image::RgbaImage;
 
 use super::RunOptions;
 use super::editor::{Input, TextArea};
@@ -172,6 +173,10 @@ pub(crate) enum Msg {
         path: PathBuf,
         count: Option<epub::PageCount>,
     },
+    Cover {
+        path: PathBuf,
+        image: Option<RgbaImage>,
+    },
     Saved {
         path: PathBuf,
         meta: Metadata,
@@ -220,6 +225,10 @@ pub(crate) struct App {
     pages_tx: Sender<PathBuf>,
     pages_pending: HashSet<PathBuf>,
     pages_dirty: bool,
+    pub cover_open: bool,
+    pub covers: HashMap<PathBuf, Option<RgbaImage>>,
+    cover_tx: Sender<PathBuf>,
+    cover_pending: HashSet<PathBuf>,
     pub pane: Pane,
     pub mode: Mode,
 
@@ -345,11 +354,20 @@ impl App {
                 let _ = pages_done.send(Msg::Pages { path, count });
             }
         });
+        let (cover_tx, cover_rx) = channel::<PathBuf>();
+        let covers_done = tx.clone();
+        thread::spawn(move || {
+            while let Ok(path) = cover_rx.recv() {
+                let image = epub::read_cover(&path).ok().flatten();
+                let _ = covers_done.send(Msg::Cover { path, image });
+            }
+        });
         let client = online::Client::new(options.google_books_api_key.clone());
         let loaded_count = entries.as_ref().map_or(0, Vec::len);
         let library_path = options.library.clone();
         let shelves = options.shelves.clone();
         let open_browser = browser_opener(&options.browser);
+        let cover_open = options.cover_pane;
         let mut app = Self {
             dir,
             options,
@@ -361,6 +379,10 @@ impl App {
             pages_tx,
             pages_pending: HashSet::new(),
             pages_dirty: false,
+            cover_open,
+            covers: HashMap::new(),
+            cover_tx,
+            cover_pending: HashSet::new(),
             pane: Pane::List,
             mode: Mode::Browse,
             edit_row: Row::default(),
@@ -872,6 +894,12 @@ impl App {
                 self.request_pages(&entry.path);
             }
         }
+        if self.cover_open
+            && let Some(entry) = self.selected()
+            && entry.error.is_none()
+        {
+            self.request_cover(&entry.path);
+        }
 
         if let Some(keep) = keep
             && let Some(i) = self.rows.iter().position(|row| {
@@ -894,6 +922,15 @@ impl App {
             return;
         }
         let _ = self.pages_tx.send(path.to_path_buf());
+    }
+
+    fn request_cover(&mut self, path: &Path) {
+        if self.covers.contains_key(path)
+            || !self.cover_pending.insert(path.to_path_buf())
+        {
+            return;
+        }
+        let _ = self.cover_tx.send(path.to_path_buf());
     }
 
     /// A pages sort needs every book's count, not just the selected one.
@@ -1086,34 +1123,42 @@ impl App {
         self.height.saturating_sub(fixed)
     }
 
-    pub fn pane_heights(&self) -> (usize, usize, bool) {
+    /// Heights for the narrow stacked layout: list, detail, cover, stacked.
+    /// The wide layout uses columns and reports no cover height.
+    pub fn pane_heights(&self) -> (usize, usize, usize, bool) {
         let avail = self.body_height();
         if self.width >= 84 {
-            return (avail, avail, false);
+            return (avail, avail, 0, false);
         }
         if avail == 0 {
-            return (0, 0, true);
+            return (0, 0, 0, true);
         }
         let mut list = clamp(avail / 3, 4, 12);
         if list > avail.saturating_sub(3) {
             list = avail.saturating_sub(3).max(3);
         }
         list = list.min(avail);
-        (list, avail - list, true)
+        let mut detail = avail - list;
+        let mut cover = 0;
+        if self.cover_open && detail >= 8 {
+            cover = clamp(detail / 3, 3, 12).min(detail.saturating_sub(3));
+            detail -= cover;
+        }
+        (list, detail, cover, true)
     }
 
     pub fn list_content_height(&self) -> usize {
-        let (list_h, _, _) = self.pane_heights();
+        let (list_h, _, _, _) = self.pane_heights();
         list_h.saturating_sub(3).max(1)
     }
 
     pub fn list_page_size(&self) -> usize {
-        let (list_h, _, _) = self.pane_heights();
+        let (list_h, _, _, _) = self.pane_heights();
         ((list_h.saturating_sub(3)) / 2).max(1)
     }
 
     pub fn row_page_size(&self) -> usize {
-        let (_, detail_h, _) = self.pane_heights();
+        let (_, detail_h, _, _) = self.pane_heights();
         detail_h.saturating_sub(3).max(1)
     }
 
@@ -1391,6 +1436,19 @@ impl App {
             return;
         }
         self.repair_file(entry.path);
+    }
+
+    fn toggle_cover(&mut self) {
+        self.cover_open = !self.cover_open;
+        if self.cover_open {
+            if let Some(entry) = self.selected().filter(|e| e.error.is_none())
+            {
+                self.request_cover(&entry.path);
+            }
+            self.set_status("cover pane on", StatusKind::Info);
+        } else {
+            self.set_status("cover pane off", StatusKind::Info);
+        }
     }
 
     fn copy_metadata(&mut self) {
@@ -2279,6 +2337,10 @@ impl App {
                 self.open_sort();
                 return;
             }
+            "C" => {
+                self.toggle_cover();
+                return;
+            }
             "s" => {
                 self.open_shelf(false);
                 return;
@@ -2646,6 +2708,10 @@ impl App {
                 self.load_path = None;
                 self.load_total = self.entries.len();
                 self.load_index = self.entries.len();
+            }
+            Msg::Cover { path, image } => {
+                self.covers.insert(path.clone(), image);
+                self.cover_pending.remove(&path);
             }
             Msg::Pages { path, count } => {
                 self.pages.insert(path.clone(), count);

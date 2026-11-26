@@ -26,6 +26,8 @@ pub struct Config {
     pub write_page_estimates: bool,
     /// Text copied by `y`, using the metadata placeholders.
     pub copy_format: String,
+    /// Show the cover pane when the TUI starts.
+    pub cover_pane: bool,
     /// Command used to open a URL. When set, it replaces `xdg-open`; the URL
     /// is appended as the final argument.
     pub browser: String,
@@ -183,6 +185,15 @@ mod tests {
         fs::write(&path, "copy_format = \"  %t (%a)  \"\n").unwrap();
         let cfg = load_file(&path).unwrap();
         assert_eq!(cfg.clipboard_format(), "%t (%a)");
+    }
+
+    #[test]
+    fn cover_pane_defaults_off_and_parses() {
+        assert!(!Config::default().cover_pane);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "cover_pane = true\n").unwrap();
+        assert!(load_file(&path).unwrap().cover_pane);
     }
 
     #[test]

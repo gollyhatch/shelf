@@ -61,6 +61,7 @@ search_url = "https://www.google.com/search?q=%a+%t"
 google_books_api_key = "your-google-books-api-key"
 rename_format = "%a - %t.epub"
 copy_format = "%a: %t"
+cover_pane = true
 slugify = true
 
 [shelves]
@@ -135,6 +136,10 @@ requests.
 `"%a: %t"`. Copying goes through the system clipboard; on Linux this uses X11,
 so Wayland sessions need XWayland.
 
+`cover_pane = true` starts the TUI with the cover pane open. It is off by
+default; press `C` to toggle it at any time. The cover is read from the EPUB and
+drawn with half-block characters, so no terminal image protocol is required.
+
 `slugify = true` makes slugified names the default for `shelf rename`.
 `--no-slugify` (or the `--no-sluggify` alias) disables it for one run, and
 `--slugify`/`-s` forces it on. The `sluggify` spelling is also accepted for the
@@ -151,7 +156,8 @@ shelf dune.epub  # jump straight into editing a single book
 ```
 
 Two panes sit side by side (they stack vertically below 84 columns): **Books**
-on the left, and the **Metadata** of the selected book on the right.
+on the left, and the **Metadata** of the selected book on the right. Pressing
+`C` adds a **Cover** pane beside them, or below them on a narrow terminal.
 
 ```
  shelf   3 books                                                 ~/books
@@ -228,6 +234,7 @@ AND binds tighter than OR, so `author:herbert read:no OR title:dune` means
 | `d` / `delete` | delete the author or tag under the cursor |
 | `D` | delete the selected book(s), after confirmation |
 | `S` | choose the Books sort order |
+| `C` | show / hide the cover pane |
 | `s` | choose a shelf |
 | `A` | add selected book(s) to a shelf |
 | `n` | in the shelf picker: save the current filter as a new shelf |
