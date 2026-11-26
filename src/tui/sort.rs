@@ -1,8 +1,11 @@
 //! Books pane ordering: configurable keys, directions and comparisons.
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 
+use crate::epub::PageCount;
 use crate::library::Entry;
 
 /// The value the Books pane is ordered by.
@@ -14,6 +17,7 @@ pub enum SortField {
     Series,
     Date,
     Language,
+    Pages,
 }
 
 impl SortField {
@@ -25,6 +29,7 @@ impl SortField {
             SortField::Series => "Series",
             SortField::Date => "Date",
             SortField::Language => "Language",
+            SortField::Pages => "Pages",
         }
     }
 }
@@ -43,6 +48,8 @@ impl SortMode {
             SortField::Date => "Date oldest first".into(),
             SortField::Series if self.desc => "Series, episode Z–A".into(),
             SortField::Series => "Series, episode A–Z".into(),
+            SortField::Pages if self.desc => "Pages most first".into(),
+            SortField::Pages => "Pages least first".into(),
             field if self.desc => format!("{} Z–A", field.label()),
             field => format!("{} A–Z", field.label()),
         }
@@ -51,7 +58,7 @@ impl SortMode {
 
 /// The ordered list shown by the sort selector. File path ascending is the
 /// default and preserves the original discovery order.
-pub const SORT_MODES: [SortMode; 12] = [
+pub const SORT_MODES: [SortMode; 14] = [
     SortMode {
         field: SortField::Path,
         desc: false,
@@ -98,6 +105,14 @@ pub const SORT_MODES: [SortMode; 12] = [
     },
     SortMode {
         field: SortField::Language,
+        desc: true,
+    },
+    SortMode {
+        field: SortField::Pages,
+        desc: false,
+    },
+    SortMode {
+        field: SortField::Pages,
         desc: true,
     },
 ];
@@ -157,7 +172,7 @@ fn parse_sort_key(value: &str) -> Result<SortMode, SortError> {
 
     let field = parse_sort_field(field_part.trim()).ok_or_else(|| {
         SortError(format!(
-            "unknown sort field {field_part:?} (want path, title, author, series, date or language)"
+            "unknown sort field {field_part:?} (want path, title, author, series, date, language or pages)"
         ))
     })?;
     let desc =
@@ -180,6 +195,7 @@ pub fn parse_sort_field(s: &str) -> Option<SortField> {
         "series" => SortField::Series,
         "date" | "published" => SortField::Date,
         "language" | "lang" => SortField::Language,
+        "pages" | "page" | "page count" | "page-count" => SortField::Pages,
         _ => return None,
     })
 }
@@ -188,18 +204,25 @@ pub fn parse_sort_field(s: &str) -> Option<SortField> {
 fn parse_sort_direction(s: &str) -> Option<bool> {
     Some(match s.trim() {
         "" | "asc" | "ascending" | "a-z" | "az" | "a to z" | "oldest"
-        | "oldest first" | "oldest-first" | "up" => false,
+        | "oldest first" | "oldest-first" | "least" | "least first"
+        | "least-first" | "up" => false,
         "desc" | "descending" | "z-a" | "za" | "z to a" | "newest"
-        | "newest first" | "newest-first" | "down" => true,
+        | "newest first" | "newest-first" | "most" | "most first"
+        | "most-first" | "down" => true,
         _ => return None,
     })
 }
 
 /// The ordering used by the Books pane. It compares each sort key in turn,
 /// then falls back to the file path for a deterministic order.
-pub fn less_entry(a: &Entry, b: &Entry, keys: &[SortMode]) -> bool {
+pub fn less_entry(
+    a: &Entry,
+    b: &Entry,
+    keys: &[SortMode],
+    pages: &HashMap<PathBuf, Option<PageCount>>,
+) -> bool {
     for key in keys {
-        match compare_entry_key(a, b, *key) {
+        match compare_entry_key(a, b, *key, pages) {
             Some(ordering) => return ordering == Ordering::Less,
             None => continue,
         }
@@ -210,11 +233,19 @@ pub fn less_entry(a: &Entry, b: &Entry, keys: &[SortMode]) -> bool {
 
 /// Compare one sort key. Missing values always sort last, in either direction.
 /// `None` means this key did not decide the order.
-fn compare_entry_key(a: &Entry, b: &Entry, key: SortMode) -> Option<Ordering> {
-    let av = sort_value(a, key.field);
-    let bv = sort_value(b, key.field);
-    if av.is_empty() || bv.is_empty() {
-        return match (av.is_empty(), bv.is_empty()) {
+fn compare_entry_key(
+    a: &Entry,
+    b: &Entry,
+    key: SortMode,
+    pages: &HashMap<PathBuf, Option<PageCount>>,
+) -> Option<Ordering> {
+    let (a_missing, b_missing) = if key.field == SortField::Pages {
+        (page_number(a, pages).is_none(), page_number(b, pages).is_none())
+    } else {
+        (sort_value(a, key.field).is_empty(), sort_value(b, key.field).is_empty())
+    };
+    if a_missing || b_missing {
+        return match (a_missing, b_missing) {
             (true, true) => None,
             (false, true) => Some(Ordering::Less),
             (true, false) => Some(Ordering::Greater),
@@ -222,14 +253,19 @@ fn compare_entry_key(a: &Entry, b: &Entry, key: SortMode) -> Option<Ordering> {
         };
     }
 
-    let mut ordering = compare_entries(a, b, key.field);
+    let mut ordering = compare_entries(a, b, key.field, pages);
     if key.desc {
         ordering = ordering.reverse();
     }
     (ordering != Ordering::Equal).then_some(ordering)
 }
 
-fn compare_entries(a: &Entry, b: &Entry, field: SortField) -> Ordering {
+fn compare_entries(
+    a: &Entry,
+    b: &Entry,
+    field: SortField,
+    pages: &HashMap<PathBuf, Option<PageCount>>,
+) -> Ordering {
     if field == SortField::Series {
         // Series name is primary, episode number is secondary, and title is the
         // final tie-breaker.
@@ -246,7 +282,21 @@ fn compare_entries(a: &Entry, b: &Entry, field: SortField) -> Ordering {
         }
         return compare_text(&a.title(), &b.title());
     }
+    if field == SortField::Pages {
+        return match (page_number(a, pages), page_number(b, pages)) {
+            (Some(ap), Some(bp)) => ap.cmp(&bp),
+            _ => Ordering::Equal,
+        };
+    }
     compare_text(&sort_value(a, field), &sort_value(b, field))
+}
+
+/// Page count for sorting; unknown and unreadable books are missing.
+fn page_number(
+    entry: &Entry,
+    pages: &HashMap<PathBuf, Option<PageCount>>,
+) -> Option<u32> {
+    pages.get(&entry.path).copied().flatten().map(|count| count.pages)
 }
 
 pub fn sort_value(entry: &Entry, field: SortField) -> String {
@@ -257,6 +307,8 @@ pub fn sort_value(entry: &Entry, field: SortField) -> String {
         SortField::Date => entry.metadata.date.clone(),
         SortField::Language => entry.metadata.language.clone(),
         SortField::Path => entry.path.to_string_lossy().into_owned(),
+        // Pages are numeric and live in the browser's cache, not in Entry.
+        SortField::Pages => String::new(),
     }
 }
 
@@ -348,7 +400,7 @@ mod tests {
             field: SortField::Series,
             desc: false,
         }];
-        assert!(less_entry(&a, &b, &keys));
+        assert!(less_entry(&a, &b, &keys, &HashMap::new()));
     }
 
     #[test]
@@ -359,12 +411,48 @@ mod tests {
             field: SortField::Date,
             desc: false,
         }];
-        assert!(less_entry(&full, &empty, &keys));
+        assert!(less_entry(&full, &empty, &keys, &HashMap::new()));
         let keys = [SortMode {
             field: SortField::Date,
             desc: true,
         }];
-        assert!(less_entry(&full, &empty, &keys));
+        assert!(less_entry(&full, &empty, &keys, &HashMap::new()));
+    }
+
+    #[test]
+    fn sorts_by_page_count_with_missing_last() {
+        let small = entry("Small", "A", "", "", "");
+        let big = entry("Big", "A", "", "", "");
+        let unknown = entry("Unknown", "A", "", "", "");
+        let mut pages = HashMap::new();
+        pages.insert(
+            small.path.clone(),
+            Some(PageCount {
+                pages: 20,
+                estimated: true,
+            }),
+        );
+        pages.insert(
+            big.path.clone(),
+            Some(PageCount {
+                pages: 500,
+                estimated: false,
+            }),
+        );
+
+        let keys = [SortMode {
+            field: SortField::Pages,
+            desc: false,
+        }];
+        assert!(less_entry(&small, &big, &keys, &pages));
+        assert!(less_entry(&big, &unknown, &keys, &pages));
+
+        let keys = [SortMode {
+            field: SortField::Pages,
+            desc: true,
+        }];
+        assert!(less_entry(&big, &small, &keys, &pages));
+        assert!(less_entry(&big, &unknown, &keys, &pages));
     }
 
     #[test]
@@ -384,6 +472,36 @@ mod tests {
             }
             .label(),
             "Author A–Z"
+        );
+        assert_eq!(
+            SortMode {
+                field: SortField::Pages,
+                desc: true
+            }
+            .label(),
+            "Pages most first"
+        );
+        assert_eq!(
+            SortMode {
+                field: SortField::Pages,
+                desc: false
+            }
+            .label(),
+            "Pages least first"
+        );
+        assert_eq!(
+            parse_sort_spec("pages:most").unwrap(),
+            vec![SortMode {
+                field: SortField::Pages,
+                desc: true
+            }]
+        );
+        assert_eq!(
+            parse_sort_spec("pages least first").unwrap(),
+            vec![SortMode {
+                field: SortField::Pages,
+                desc: false
+            }]
         );
     }
 }

@@ -10,6 +10,7 @@ use ratatui::buffer::Buffer;
 use ratatui::style::Color;
 
 use super::app::{App, Mode, Pane, RowKind, ShelfField, StatusKind};
+use super::sort::{SortField, SortMode};
 use super::{RunOptions, theme};
 use crate::epub::{self, Creator, Field, Metadata};
 use crate::library::{self, Entry};
@@ -186,6 +187,69 @@ fn pages_row_is_read_only() {
     app.row_idx = i;
     app.handle_key(key(KeyCode::Enter));
     assert_eq!(app.mode, Mode::Browse);
+}
+
+fn extent_epub(
+    title: &str,
+    pages: u32,
+) -> (tempfile::TempDir, PathBuf) {
+    let opf = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" version="3.0" unique-identifier="pub-id">
+  <metadata>
+    <dc:identifier id="pub-id">urn:isbn:{pages}</dc:identifier>
+    <dc:title>{title}</dc:title>
+    <dc:language>en</dc:language>
+    <dc:extent>{pages} pages</dc:extent>
+  </metadata>
+</package>"#
+    );
+    crate::epub::test_support::write_entries(&[
+        (
+            "META-INF/container.xml",
+            crate::epub::test_support::FIXTURE_CONTAINER,
+        ),
+        ("OEBPS/content.opf", &opf),
+    ])
+}
+
+#[test]
+fn pages_sort_orders_by_count() {
+    let (_small_dir, small) = extent_epub("Small", 20);
+    let (_big_dir, big) = extent_epub("Big", 500);
+    let (_middle_dir, middle) = extent_epub("Middle", 90);
+    let entries = vec![
+        library::load_one(&small),
+        library::load_one(&big),
+        library::load_one(&middle),
+    ];
+    let mut app =
+        App::new(PathBuf::from("."), Some(entries), options()).unwrap();
+
+    app.sort_keys = vec![SortMode {
+        field: SortField::Pages,
+        desc: false,
+    }];
+    app.apply_filter();
+    wait_until(&mut app, |app| {
+        app.entries
+            .iter()
+            .all(|entry| app.pages.contains_key(&entry.path))
+    });
+    let titles = |app: &App| -> Vec<String> {
+        app.visible()
+            .iter()
+            .map(|entry| entry.metadata.title.clone())
+            .collect()
+    };
+    assert_eq!(titles(&app), ["Small", "Middle", "Big"]);
+
+    app.sort_keys = vec![SortMode {
+        field: SortField::Pages,
+        desc: true,
+    }];
+    app.apply_filter();
+    assert_eq!(titles(&app), ["Big", "Middle", "Small"]);
 }
 
 #[test]

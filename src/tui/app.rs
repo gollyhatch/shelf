@@ -12,7 +12,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::RunOptions;
 use super::editor::{Input, TextArea};
 use super::help::HELP_ENTRIES;
-use super::sort::{SORT_MODES, SortMode, less_entry, parse_sort_spec};
+use super::sort::{
+    SORT_MODES, SortField, SortMode, less_entry, parse_sort_spec,
+};
 use super::theme::{
     DEFAULT_THEME, Styles, ThemeChoice, catalog, load as load_theme,
 };
@@ -212,7 +214,8 @@ pub(crate) struct App {
     pub row_idx: usize,
     pub pages: HashMap<PathBuf, Option<epub::PageCount>>,
     pages_tx: Sender<PathBuf>,
-    pages_requested: Option<PathBuf>,
+    pages_pending: HashSet<PathBuf>,
+    pages_dirty: bool,
     pub pane: Pane,
     pub mode: Mode,
 
@@ -321,10 +324,7 @@ impl App {
         let (pages_tx, pages_rx) = channel::<PathBuf>();
         let pages_done = tx.clone();
         thread::spawn(move || {
-            while let Ok(mut path) = pages_rx.recv() {
-                while let Ok(next) = pages_rx.try_recv() {
-                    path = next;
-                }
+            while let Ok(path) = pages_rx.recv() {
                 let count = epub::read_page_count(&path).ok().flatten();
                 let _ = pages_done.send(Msg::Pages { path, count });
             }
@@ -343,7 +343,8 @@ impl App {
             row_idx: 0,
             pages: HashMap::new(),
             pages_tx,
-            pages_requested: None,
+            pages_pending: HashSet::new(),
+            pages_dirty: false,
             pane: Pane::List,
             mode: Mode::Browse,
             edit_row: Row::default(),
@@ -613,8 +614,20 @@ impl App {
             };
             self.handle_msg(msg);
         }
-        if std::mem::take(&mut self.load_dirty) {
+        let loaded = std::mem::take(&mut self.load_dirty);
+        let pages = std::mem::take(&mut self.pages_dirty);
+        if loaded {
             self.refresh_after_load();
+        } else if pages
+            && self
+                .sort_keys
+                .iter()
+                .any(|key| key.field == SortField::Pages)
+        {
+            let focus = self.selected().map(|entry| entry.path);
+            self.apply_filter();
+            self.focus_path(focus.as_deref());
+            self.rebuild_rows();
         }
     }
 
@@ -680,16 +693,18 @@ impl App {
         }
         let entries = &self.entries;
         let keys = &self.sort_keys;
+        let pages = &self.pages;
         self.filtered.sort_by(|&a, &b| {
             match (
-                less_entry(&entries[a], &entries[b], keys),
-                less_entry(&entries[b], &entries[a], keys),
+                less_entry(&entries[a], &entries[b], keys, pages),
+                less_entry(&entries[b], &entries[a], keys, pages),
             ) {
                 (true, _) => std::cmp::Ordering::Less,
                 (false, true) => std::cmp::Ordering::Greater,
                 _ => std::cmp::Ordering::Equal,
             }
         });
+        self.request_all_pages();
     }
 
     pub fn set_filter(&mut self, query: &str) {
@@ -857,12 +872,31 @@ impl App {
 
     fn request_pages(&mut self, path: &Path) {
         if self.pages.contains_key(path)
-            || self.pages_requested.as_deref() == Some(path)
+            || !self.pages_pending.insert(path.to_path_buf())
         {
             return;
         }
-        self.pages_requested = Some(path.to_path_buf());
         let _ = self.pages_tx.send(path.to_path_buf());
+    }
+
+    /// A pages sort needs every book's count, not just the selected one.
+    fn request_all_pages(&mut self) {
+        if !self.sort_keys.iter().any(|key| key.field == SortField::Pages) {
+            return;
+        }
+        let missing: Vec<PathBuf> = self
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.error.is_none()
+                    && !self.pages.contains_key(&entry.path)
+                    && !self.pages_pending.contains(&entry.path)
+            })
+            .map(|entry| entry.path.clone())
+            .collect();
+        for path in missing {
+            self.request_pages(&path);
+        }
     }
 
     fn move_list(&mut self, delta: isize) {
@@ -2571,8 +2605,13 @@ impl App {
             }
             Msg::Pages { path, count } => {
                 self.pages.insert(path.clone(), count);
-                if self.pages_requested.as_deref() == Some(path.as_path()) {
-                    self.pages_requested = None;
+                self.pages_pending.remove(&path);
+                if self
+                    .sort_keys
+                    .iter()
+                    .any(|key| key.field == SortField::Pages)
+                {
+                    self.pages_dirty = true;
                 }
                 if self.selected().is_some_and(|entry| entry.path == path) {
                     self.rebuild_rows();

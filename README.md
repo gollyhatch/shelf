@@ -106,8 +106,10 @@ is painted across the whole terminal, so the shelf keeps its own background
 instead of borrowing the terminal's.
 
 `sort` sets the Books pane order at startup. Use `path` (the default), `title`,
-`author`, `series`, `date` or `language`, optionally followed by a direction:
-`sort = "title:desc"`, `sort = "date newest first"`, or `sort = "series-desc"`.
+`author`, `series`, `date`, `language` or `pages`, optionally followed by a
+direction: `sort = "title:desc"`, `sort = "date newest first"`,
+`sort = "series-desc"`, or `sort = "pages:most"`. Books without a page count
+sort last, and counts are read in the background on first use.
 Separate several keys with commas for a composite order, for example
 `sort = "author,series"` sorts by author and then by series and episode. Each
 key can have its own direction: `sort = "author:asc,series:desc"`. Ascending is
@@ -170,7 +172,7 @@ descriptions wrap across multiple lines in the metadata pane.
 When a book supplies a page count (an EPUB 3 page-list, an NCX page list, an
 Adobe page-map, or `dc:extent`), the detail pane ends with a read-only
 `Pages:` row. Books without one show an estimate at 300 words per page, marked
-`(est.)`.
+`(est.)`. Page count is also available as a sort key.
 
 Search terms can be combined and all of them must match. Each term is either an
 unprefixed word searched across the title, authors, series, tags, description
@@ -235,8 +237,9 @@ nothing is selected. A confirmation dialog always appears first: `y`/`enter`
 deletes, `n`/`esc` cancels.
 
 Press `S` to choose the Books sort order: file path, title, author, series,
-date or language, ascending or descending (oldest or newest first for dates).
-Within a series, books are ordered by episode number before title. Use `↑`/`↓`
+date, language or pages, ascending or descending (oldest or newest first for
+dates, least or most first for pages). Within a series, books are ordered by
+episode number before title. Use `↑`/`↓`
 or `j`/`k` to move, `enter` to apply and `esc` to cancel. The cursor stays on
 the same book after sorting.
 
