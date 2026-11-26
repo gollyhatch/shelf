@@ -1645,12 +1645,12 @@ impl App {
 }
 
 /// Column widths of the wide layout. Opening the cover pane takes ten columns
-/// from the library and gives the cover ten more.
+/// from the library and ten from the metadata, and gives the cover twenty more.
 fn wide_widths(width: u16, cover_open: bool) -> (u16, u16, u16) {
     let mut list = width / 3;
     if cover_open {
         let library = list.saturating_sub(10);
-        let cover = ((width / 4).clamp(20, 34) + 10)
+        let cover = ((width / 4).clamp(20, 34) + 20)
             .min(width.saturating_sub(library + 1 + 24 + 1));
         if cover >= 12 {
             let detail = width - library - cover - 2;
@@ -1977,17 +1977,18 @@ mod tests {
     }
 
     #[test]
-    fn cover_pane_takes_ten_columns_from_the_library() {
+    fn cover_pane_takes_ten_from_library_and_metadata() {
         let (list, detail, cover) = wide_widths(120, false);
         assert_eq!((list, detail, cover), (40, 79, 0));
 
         let (list, detail, cover) = wide_widths(120, true);
-        assert_eq!(list, 30);
-        assert_eq!(cover, 40);
+        assert_eq!((list, detail, cover), (30, 38, 50));
+        assert_eq!(detail, 48 - 10);
+        assert_eq!(cover, 40 + 10);
         assert_eq!(list + detail + cover + 2, 120);
 
         let (list, detail, cover) = wide_widths(84, true);
-        assert_eq!((list, cover), (18, 31));
+        assert_eq!((list, detail, cover), (18, 24, 40));
         assert_eq!(list + detail + cover + 2, 84);
     }
 
