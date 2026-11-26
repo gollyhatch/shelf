@@ -226,6 +226,7 @@ pub(crate) struct App {
     pages_pending: HashSet<PathBuf>,
     pages_dirty: bool,
     pub cover_open: bool,
+    pub cover_full: bool,
     pub covers: HashMap<PathBuf, Option<RgbaImage>>,
     cover_tx: Sender<PathBuf>,
     cover_pending: HashSet<PathBuf>,
@@ -380,6 +381,7 @@ impl App {
             pages_pending: HashSet::new(),
             pages_dirty: false,
             cover_open,
+            cover_full: false,
             covers: HashMap::new(),
             cover_tx,
             cover_pending: HashSet::new(),
@@ -1438,6 +1440,16 @@ impl App {
         self.repair_file(entry.path);
     }
 
+    fn open_cover_full(&mut self) {
+        let Some(entry) = self.selected() else {
+            return;
+        };
+        if entry.error.is_none() {
+            self.request_cover(&entry.path);
+        }
+        self.cover_full = true;
+    }
+
     fn toggle_cover(&mut self) {
         self.cover_open = !self.cover_open;
         if self.cover_open {
@@ -2268,6 +2280,14 @@ impl App {
             self.update_search(key);
             return;
         }
+        if self.cover_full {
+            match key_name(&key).as_str() {
+                "c" | "esc" | "q" | "enter" => self.cover_full = false,
+                "ctrl+c" => self.quit = true,
+                _ => {}
+            }
+            return;
+        }
         if self.help_open {
             self.update_help(key);
             return;
@@ -2335,6 +2355,10 @@ impl App {
             }
             "S" => {
                 self.open_sort();
+                return;
+            }
+            "c" => {
+                self.open_cover_full();
                 return;
             }
             "C" => {

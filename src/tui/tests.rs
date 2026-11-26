@@ -405,24 +405,55 @@ fn cover_pane_loads_cover_from_epub() {
 }
 
 #[test]
+fn c_opens_maximized_cover() {
+    let mut app = app_with(entries(), options());
+    let path = app.selected().unwrap().path;
+    app.covers.insert(
+        path,
+        Some(image::RgbaImage::from_pixel(
+            4,
+            6,
+            image::Rgba([30, 60, 90, 255]),
+        )),
+    );
+    app.handle_key(ch('c'));
+    assert!(app.cover_full);
+
+    let view = render(&mut app, 100, 24);
+    assert!(view.contains("Cover · c/esc close"), "{view}");
+    assert!(view.contains('▀'), "{view}");
+
+    app.handle_key(key(KeyCode::Esc));
+    assert!(!app.cover_full);
+
+    app.handle_key(ch('c'));
+    app.handle_key(ch('q'));
+    assert!(!app.cover_full);
+    assert!(!app.quit);
+}
+
+#[test]
 fn view_fits_small_terminals() {
     for cover in [false, true] {
-        for width in [16u16, 24, 40, 60, 83, 84, 100, 160] {
-            for height in [4u16, 6, 8, 12, 20, 40] {
-                let mut app = app_with(entries(), options());
-                app.cover_open = cover;
-                let view = render(&mut app, width, height);
-                assert_eq!(
-                    view.lines().count(),
-                    height as usize,
-                    "{width}x{height} cover={cover}"
-                );
-                for line in view.lines() {
-                    assert!(
-                        unicode_width::UnicodeWidthStr::width(line)
-                            <= width as usize,
-                        "{width}x{height} cover={cover}: {line:?}"
+        for full in [false, true] {
+            for width in [16u16, 24, 40, 60, 83, 84, 100, 160] {
+                for height in [4u16, 6, 8, 12, 20, 40] {
+                    let mut app = app_with(entries(), options());
+                    app.cover_open = cover;
+                    app.cover_full = full;
+                    let view = render(&mut app, width, height);
+                    assert_eq!(
+                        view.lines().count(),
+                        height as usize,
+                        "{width}x{height} cover={cover} full={full}"
                     );
+                    for line in view.lines() {
+                        assert!(
+                            unicode_width::UnicodeWidthStr::width(line)
+                                <= width as usize,
+                            "{width}x{height} cover={cover} full={full}: {line:?}"
+                        );
+                    }
                 }
             }
         }

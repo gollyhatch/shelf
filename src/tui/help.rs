@@ -46,6 +46,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
     bind("M", "rename and move selected book(s) into the library"),
     bind("D", "delete selected file(s)"),
     bind("S", "change the sort order"),
+    bind("c", "open the cover maximized"),
     bind("C", "show / hide the cover pane"),
     bind("s", "choose a shelf"),
     bind("A", "add selected book(s) to a shelf"),

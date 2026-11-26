@@ -263,6 +263,10 @@ impl App {
         if area.height == 0 {
             return;
         }
+        if self.cover_full {
+            self.draw_cover_full(frame, area);
+            return;
+        }
         if self.width >= 84 {
             let list_w = (self.width / 3) as u16;
             let list_rect = Rect::new(area.x, area.y, list_w, area.height);
@@ -418,6 +422,40 @@ impl App {
             inner.width as usize,
             inner.height.saturating_sub(1) as usize,
         ));
+        frame.render_widget(Paragraph::new(Text::from(lines)), inner);
+    }
+
+    fn draw_cover_full(&self, frame: &mut Frame, area: Rect) {
+        if area.width < 8 || area.height < 4 {
+            return;
+        }
+        frame.render_widget(Clear, area);
+        frame.render_widget(Block::default().style(self.styles.base), area);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(self.styles.border_focused));
+        frame.render_widget(block, area);
+
+        let inner = Rect::new(
+            area.x + 1,
+            area.y + 1,
+            area.width.saturating_sub(2),
+            area.height.saturating_sub(2),
+        );
+        if inner.width == 0 || inner.height == 0 {
+            return;
+        }
+        let mut lines = vec![Line::from(Span::styled(
+            " Cover · c/esc close",
+            self.styles.pane_title_active,
+        ))];
+        lines.extend(
+            self.cover_lines(
+                inner.width as usize,
+                inner.height.saturating_sub(1) as usize,
+            ),
+        );
         frame.render_widget(Paragraph::new(Text::from(lines)), inner);
     }
 
@@ -1559,7 +1597,9 @@ impl App {
             // The shelf dialogs show their own key hints.
             return;
         }
-        let bindings: Vec<(&str, &str)> = if self.help_open {
+        let bindings: Vec<(&str, &str)> = if self.cover_full {
+            vec![("c/esc", "close")]
+        } else if self.help_open {
             vec![("?/esc", "close"), ("↑↓", "scroll"), ("pgup/pgdn", "page")]
         } else if self.confirm_delete {
             vec![("y/enter", "delete"), ("n/esc", "cancel")]

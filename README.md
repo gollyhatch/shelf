@@ -137,8 +137,9 @@ requests.
 so Wayland sessions need XWayland.
 
 `cover_pane = true` starts the TUI with the cover pane open. It is off by
-default; press `C` to toggle it at any time. The cover is read from the EPUB and
-drawn with half-block characters, so no terminal image protocol is required.
+default; press `C` to toggle it at any time, or `c` to open the cover maximized
+over the body. The cover is read from the EPUB and drawn with half-block
+characters, so no terminal image protocol is required.
 
 `slugify = true` makes slugified names the default for `shelf rename`.
 `--no-slugify` (or the `--no-sluggify` alias) disables it for one run, and
@@ -157,7 +158,8 @@ shelf dune.epub  # jump straight into editing a single book
 
 Two panes sit side by side (they stack vertically below 84 columns): **Books**
 on the left, and the **Metadata** of the selected book on the right. Pressing
-`C` adds a **Cover** pane beside them, or below them on a narrow terminal.
+`C` adds a **Cover** pane beside them, or below them on a narrow terminal;
+`c` opens the cover maximized over the body.
 
 ```
  shelf   3 books                                                 ~/books
@@ -234,6 +236,7 @@ AND binds tighter than OR, so `author:herbert read:no OR title:dune` means
 | `d` / `delete` | delete the author or tag under the cursor |
 | `D` | delete the selected book(s), after confirmation |
 | `S` | choose the Books sort order |
+| `c` | open the cover maximized (`c`/`esc` closes) |
 | `C` | show / hide the cover pane |
 | `s` | choose a shelf |
 | `A` | add selected book(s) to a shelf |
