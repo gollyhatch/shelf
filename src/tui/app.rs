@@ -1117,11 +1117,9 @@ impl App {
             }
             return avail;
         }
-        if self.status.is_empty() {
-            fixed += 2; // blank + footer
-        } else {
-            fixed += 1;
-        }
+        // A status (or blank spacer) plus the footer always occupy two rows,
+        // so a message cannot resize the panes.
+        fixed += 2;
         self.height.saturating_sub(fixed)
     }
 

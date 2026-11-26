@@ -74,9 +74,10 @@ impl App {
             self.draw_editor(frame, area, y);
             return;
         }
-        if !self.status.is_empty() {
-            self.draw_status(frame, Rect::new(area.x, y, area.width, 1));
-        } else if y < area.bottom() {
+        if y < area.bottom() {
+            if !self.status.is_empty() {
+                self.draw_status(frame, Rect::new(area.x, y, area.width, 1));
+            }
             y += 1;
             if y < area.bottom() {
                 self.draw_footer(frame, Rect::new(area.x, y, area.width, 1));
@@ -263,10 +264,6 @@ impl App {
         if area.height == 0 {
             return;
         }
-        if self.cover_full {
-            self.draw_cover_full(frame, area);
-            return;
-        }
         if self.width >= 84 {
             let (list_w, detail_w, cover_w) =
                 wide_widths(area.width, self.cover_open);
@@ -310,6 +307,9 @@ impl App {
         // on the panes behind it.
         if self.theme_open {
             self.draw_theme(frame, area);
+        }
+        if self.cover_full {
+            self.draw_cover_full(frame, area);
         }
     }
 
@@ -402,37 +402,57 @@ impl App {
     }
 
     fn draw_cover_full(&self, frame: &mut Frame, area: Rect) {
-        if area.width < 8 || area.height < 4 {
+        if area.width < 6 || area.height < 3 {
             return;
         }
-        frame.render_widget(Clear, area);
-        frame.render_widget(Block::default().style(self.styles.base), area);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(self.styles.border_focused));
-        frame.render_widget(block, area);
+        let selected = self.selected();
+        let image = selected.as_ref().and_then(|entry| {
+            if entry.error.is_some() {
+                return None;
+            }
+            self.covers.get(&entry.path).and_then(Option::as_ref)
+        });
 
-        let inner = Rect::new(
-            area.x + 1,
-            area.y + 1,
-            area.width.saturating_sub(2),
-            area.height.saturating_sub(2),
-        );
-        if inner.width == 0 || inner.height == 0 {
+        let message = match &selected {
+            None => "no cover",
+            Some(entry) if entry.error.is_some() => "no cover",
+            Some(entry) => match self.covers.get(&entry.path) {
+                None => "loading…",
+                Some(None) => "no cover",
+                Some(Some(_)) => "no cover",
+            },
+        };
+        let (content_w, content_h) = match image {
+            Some(image) => cover_cells(
+                image,
+                area.width,
+                area.height,
+            ),
+            None => (
+                (UnicodeWidthStr::width(message) as u16).min(area.width),
+                1,
+            ),
+        };
+        let rect = cover_frame(area, content_w, content_h);
+        if rect.width == 0 || rect.height == 0 {
             return;
         }
-        let mut lines = vec![Line::from(Span::styled(
-            " Cover · c/esc close",
-            self.styles.pane_title_active,
-        ))];
-        lines.extend(
-            self.cover_lines(
-                inner.width as usize,
-                inner.height.saturating_sub(1) as usize,
+        frame.render_widget(Clear, rect);
+        frame.render_widget(Block::default().style(self.styles.base), rect);
+
+        let lines = match image {
+            Some(image) => cover_image_lines(
+                image,
+                rect.width as usize,
+                rect.height as usize,
+                self.styles.base.bg.unwrap_or(Color::Rgb(0, 0, 0)),
             ),
-        );
-        frame.render_widget(Paragraph::new(Text::from(lines)), inner);
+            None => vec![Line::from(Span::styled(
+                message,
+                self.styles.empty,
+            ))],
+        };
+        frame.render_widget(Paragraph::new(Text::from(lines)), rect);
     }
 
     fn cover_lines(&self, width: usize, height: usize) -> Vec<Line<'static>> {
@@ -1707,6 +1727,29 @@ fn cover_image_lines(
     out
 }
 
+/// Cell dimensions the image occupies when fitted into the available area.
+fn cover_cells(image: &RgbaImage, max_w: u16, max_h: u16) -> (u16, u16) {
+    let (w, h) = fit_cover(
+        image.width(),
+        image.height(),
+        max_w as u32,
+        (max_h as u32).saturating_mul(2),
+    );
+    (w as u16, (h as usize).div_ceil(2) as u16)
+}
+
+/// Center the image's cell footprint in the body.
+fn cover_frame(area: Rect, content_w: u16, content_h: u16) -> Rect {
+    let width = content_w.min(area.width);
+    let height = content_h.min(area.height);
+    Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    )
+}
+
 /// Fit the image inside the cell grid without changing its aspect ratio.
 fn fit_cover(iw: u32, ih: u32, max_w: u32, max_h: u32) -> (u32, u32) {
     if iw == 0 || ih == 0 || max_w == 0 || max_h == 0 {
@@ -1967,6 +2010,19 @@ mod tests {
             .into_iter()
             .map(|row| row.chars.iter().collect())
             .collect()
+    }
+
+    #[test]
+    fn cover_popup_frame_wraps_the_image() {
+        let image = RgbaImage::from_pixel(2, 3, Rgba([0, 0, 0, 255]));
+        let (w, h) = cover_cells(&image, 100, 20);
+        assert_eq!((w, h), (27, 20));
+
+        let area = Rect::new(0, 0, 100, 30);
+        let frame = cover_frame(area, w, h);
+        assert_eq!((frame.width, frame.height), (w, h));
+        assert_eq!(frame.x, (100 - w) / 2);
+        assert_eq!(frame.y, (30 - h) / 2);
     }
 
     #[test]

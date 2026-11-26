@@ -419,8 +419,10 @@ fn c_opens_maximized_cover() {
     assert!(app.cover_full);
 
     let view = render(&mut app, 100, 24);
-    assert!(view.contains("Cover · c/esc close"), "{view}");
+    assert!(!view.contains("Cover"), "{view}");
     assert!(view.contains('▀'), "{view}");
+    assert!(view.contains("Dune"), "{view}");
+    assert!(view.contains("Books"), "{view}");
 
     app.handle_key(key(KeyCode::Esc));
     assert!(!app.cover_full);
@@ -944,6 +946,23 @@ fn editor_renders_and_suggestions_complete_authors() {
     assert!(app.show_suggestions);
     app.handle_key(key(KeyCode::Tab));
     assert_eq!(app.input.value(), "Le Guin, Ursula K.");
+}
+
+#[test]
+fn status_does_not_move_the_panes() {
+    let mut app = app_with(entries(), options());
+    let before = render(&mut app, 100, 24);
+    app.set_status("working", StatusKind::Info);
+    let after = render(&mut app, 100, 24);
+
+    let bottom = |view: &str| {
+        view.lines()
+            .position(|line| line.contains('╰'))
+            .expect("pane bottom")
+    };
+    assert_eq!(bottom(&before), bottom(&after));
+    assert!(after.contains("working"), "{after}");
+    assert!(after.contains("q quit"), "{after}");
 }
 
 #[test]
