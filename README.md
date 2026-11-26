@@ -60,6 +60,7 @@ browser = "firefox"
 search_url = "https://www.google.com/search?q=%a+%t"
 google_books_api_key = "your-google-books-api-key"
 rename_format = "%a - %t.epub"
+copy_format = "%a: %t"
 slugify = true
 
 [shelves]
@@ -128,6 +129,11 @@ requests.
 
 `rename_format` sets the default pattern for `shelf rename`. It is used when
 `-f/--format` is not given; an explicit `-f` always wins.
+
+`copy_format` sets the text that `y` copies from the TUI. It uses the same
+`%t`, `%a`, `%s` and long-name placeholders as `rename_format`; the default is
+`"%a: %t"`. Copying uses `wl-copy`, `xclip` or `xsel` on Linux (`pbcopy` on
+macOS, `clip` on Windows); when none is available the status line reports it.
 
 `slugify = true` makes slugified names the default for `shelf rename`.
 `--no-slugify` (or the `--no-sluggify` alias) disables it for one run, and
@@ -233,6 +239,7 @@ AND binds tighter than OR, so `author:herbert read:no OR title:dune` means
 | `R` | rescan the directory |
 | `r` | repair the selected book when its metadata could not be read |
 | `m` | look up metadata online for the selected book |
+| `y` | copy the selected book's metadata using `copy_format` |
 | `x` | mark the selected book(s) read / unread |
 | `N` | rename the selected book(s) using the configured rename settings |
 | `M` | rename the selected book(s) and move them into the configured library |

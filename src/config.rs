@@ -24,6 +24,8 @@ pub struct Config {
     pub sort: String,
     /// Write an estimated page count back into the EPUB as `dc:extent`.
     pub write_page_estimates: bool,
+    /// Text copied by `y`, using the metadata placeholders.
+    pub copy_format: String,
     /// Command used to open a URL. When set, it replaces `xdg-open`; the URL
     /// is appended as the final argument.
     pub browser: String,
@@ -47,6 +49,16 @@ impl Config {
     /// Whether rename should slugify by default.
     pub fn slugify_rename(&self) -> bool {
         self.slugify || self.sluggify
+    }
+
+    /// The configured clipboard format, defaulting to "%a: %t".
+    pub fn clipboard_format(&self) -> &str {
+        let format = self.copy_format.trim();
+        if format.is_empty() {
+            "%a: %t"
+        } else {
+            format
+        }
     }
 
     /// The configured library, or `fallback` when none is set.
@@ -161,6 +173,16 @@ mod tests {
         let path = dir.path().join("config.toml");
         fs::write(&path, "write_page_estimates = true\n").unwrap();
         assert!(load_file(&path).unwrap().write_page_estimates);
+    }
+
+    #[test]
+    fn clipboard_format_defaults_and_trims() {
+        assert_eq!(Config::default().clipboard_format(), "%a: %t");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "copy_format = \"  %t (%a)  \"\n").unwrap();
+        let cfg = load_file(&path).unwrap();
+        assert_eq!(cfg.clipboard_format(), "%t (%a)");
     }
 
     #[test]

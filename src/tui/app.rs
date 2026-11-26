@@ -21,7 +21,7 @@ use super::theme::{
 use crate::epub::{self, Field, Metadata, Package};
 use crate::library::{self, Entry};
 use crate::online;
-use crate::rename::expand_search_url;
+use crate::rename::{expand_metadata, expand_search_url, validate_format};
 use crate::search::entry_matches;
 use crate::shelves::{self, Shelf};
 
@@ -155,6 +155,10 @@ pub(crate) type LookupFn =
 
 /// A pluggable URL opener, so tests can avoid spawning a browser.
 pub(crate) type BrowserFn =
+    std::sync::Arc<dyn Fn(&str) -> Result<()> + Send + Sync>;
+
+/// A pluggable clipboard writer, so tests can avoid the desktop.
+pub(crate) type CopyFn =
     std::sync::Arc<dyn Fn(&str) -> Result<()> + Send + Sync>;
 
 /// Messages from worker threads.
@@ -303,6 +307,7 @@ pub(crate) struct App {
     pub pending_viewer: Option<Command>,
 
     pub open_browser: BrowserFn,
+    pub copy: CopyFn,
 
     pub(crate) tx: Sender<Msg>,
     pub(crate) rx: Receiver<Msg>,
@@ -427,6 +432,7 @@ impl App {
             quit: false,
             pending_viewer: None,
             open_browser,
+            copy: std::sync::Arc::new(crate::clipboard::write),
             tx,
             rx,
         };
@@ -1387,6 +1393,29 @@ impl App {
         self.repair_file(entry.path);
     }
 
+    fn copy_metadata(&mut self) {
+        let Some(entry) = self.selected() else {
+            return;
+        };
+        let configured = self.options.copy_format.trim();
+        let format = if configured.is_empty() {
+            "%a: %t"
+        } else {
+            configured
+        };
+        if let Err(err) = validate_format(format) {
+            self.set_status(&format!("copy: {err}"), StatusKind::Err);
+            return;
+        }
+        let text = expand_metadata(format, &entry.metadata);
+        match (self.copy)(&text) {
+            Ok(()) => self.set_status("copied to clipboard", StatusKind::Ok),
+            Err(err) => {
+                self.set_status(&format!("clipboard: {err}"), StatusKind::Err)
+            }
+        }
+    }
+
     fn lookup_selected(&mut self) {
         if self.looking_up || self.online_open {
             return;
@@ -2224,6 +2253,10 @@ impl App {
             }
             "m" => {
                 self.lookup_selected();
+                return;
+            }
+            "y" => {
+                self.copy_metadata();
                 return;
             }
             "x" => {

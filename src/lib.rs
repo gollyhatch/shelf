@@ -1,6 +1,7 @@
 //! shelf: browse and edit EPUB metadata, in your terminal.
 
 pub mod check;
+pub mod clipboard;
 pub mod cli;
 pub mod config;
 pub mod epub;

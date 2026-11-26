@@ -332,6 +332,57 @@ pub fn expand_format(
     name
 }
 
+/// Expand metadata placeholders for plain text such as the clipboard copy.
+/// Values keep their punctuation and whitespace; unknown percent sequences are
+/// left as written.
+pub fn expand_metadata(format: &str, meta: &Metadata) -> String {
+    let bytes = format.as_bytes();
+    let mut out = String::with_capacity(format.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'%' {
+            match format[i..].find('%') {
+                Some(next) => {
+                    out.push_str(&format[i..i + next]);
+                    i += next;
+                }
+                None => {
+                    out.push_str(&format[i..]);
+                    break;
+                }
+            }
+            continue;
+        }
+        i += 1;
+        if i >= bytes.len() {
+            out.push('%');
+            break;
+        }
+        if bytes[i] == b'%' {
+            out.push('%');
+            i += 1;
+            continue;
+        }
+        if let Some((field, end)) = format_verb_at(format, i) {
+            let mut value = meta.get(field);
+            if field == Field::SeriesIndex {
+                value = normalize_episode(&value);
+            }
+            out.push_str(&value);
+            i = end;
+            continue;
+        }
+        out.push('%');
+        let mut j = i;
+        while j < bytes.len() && is_format_verb_char(bytes[j]) {
+            j += 1;
+        }
+        out.push_str(&format[i..j]);
+        i = j;
+    }
+    out
+}
+
 /// Drop a trailing `.0` from an episode number (`2.0` becomes `2`).
 fn normalize_episode(s: &str) -> String {
     let s = s.trim();
@@ -529,6 +580,22 @@ mod tests {
             "Middle-earth 2 - The Hobbit.epub"
         );
         assert_eq!(expand_format("%title", &e, false), "The Hobbit.epub");
+    }
+
+    #[test]
+    fn expands_metadata_text() {
+        let mut e = entry("The Hobbit", "Tolkien, J. R. R.");
+        e.metadata.series = "Middle-earth".into();
+        e.metadata.series_index = "2.0".into();
+        assert_eq!(
+            expand_metadata("%a: %t", &e.metadata),
+            "Tolkien, J. R. R.: The Hobbit"
+        );
+        assert_eq!(
+            expand_metadata("%title / %e", &e.metadata),
+            "The Hobbit / 2"
+        );
+        assert_eq!(expand_metadata("100%% %z", &e.metadata), "100% %z");
     }
 
     #[test]

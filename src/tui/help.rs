@@ -40,6 +40,7 @@ pub const HELP_ENTRIES: &[HelpEntry] = &[
     bind("R", "rescan the directory"),
     bind("r", "repair an unreadable EPUB"),
     bind("m", "look up metadata online"),
+    bind("y", "copy metadata to the clipboard"),
     bind("x", "mark read / unread"),
     bind("N", "rename selected book(s)"),
     bind("M", "rename and move selected book(s) into the library"),

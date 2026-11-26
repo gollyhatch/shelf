@@ -34,6 +34,8 @@ pub struct RunOptions {
     pub sort: String,
     /// Write an estimated page count back into the EPUB as `dc:extent`.
     pub write_page_estimates: bool,
+    /// Text copied by `y`, using the metadata placeholders.
+    pub copy_format: String,
     /// Browser command for URLs; empty falls back to `xdg-open`.
     pub browser: String,
     pub search_url: String,

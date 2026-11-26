@@ -41,6 +41,7 @@ fn options() -> RunOptions {
         library: String::new(),
         sort: String::new(),
         write_page_estimates: false,
+        copy_format: "%a: %t".into(),
         browser: String::new(),
         search_url: String::new(),
         rename: NameRule::new("", false),
@@ -283,6 +284,35 @@ fn page_estimate_written_when_enabled() {
             estimated: false
         })
     );
+}
+
+#[test]
+fn y_copies_default_metadata() {
+    let mut app = app_with(entries(), options());
+    let copied = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let sink = copied.clone();
+    app.copy = std::sync::Arc::new(move |text: &str| {
+        *sink.lock().unwrap() = text.to_owned();
+        Ok(())
+    });
+    app.handle_key(ch('y'));
+    assert_eq!(*copied.lock().unwrap(), "Frank Herbert: Dune");
+    assert_eq!(app.status, "copied to clipboard");
+}
+
+#[test]
+fn y_uses_configured_copy_format() {
+    let mut opts = options();
+    opts.copy_format = "%t (%a)".into();
+    let mut app = app_with(entries(), opts);
+    let copied = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let sink = copied.clone();
+    app.copy = std::sync::Arc::new(move |text: &str| {
+        *sink.lock().unwrap() = text.to_owned();
+        Ok(())
+    });
+    app.handle_key(ch('y'));
+    assert_eq!(*copied.lock().unwrap(), "Dune (Frank Herbert)");
 }
 
 #[test]
