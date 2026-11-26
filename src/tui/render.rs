@@ -397,14 +397,7 @@ impl App {
         if inner.width == 0 || inner.height == 0 {
             return;
         }
-        let mut lines = vec![Line::from(Span::styled(
-            "Cover",
-            self.styles.pane_title,
-        ))];
-        lines.extend(self.cover_lines(
-            inner.width as usize,
-            inner.height.saturating_sub(1) as usize,
-        ));
+        let lines = self.cover_lines(inner.width as usize, inner.height as usize);
         frame.render_widget(Paragraph::new(Text::from(lines)), inner);
     }
 

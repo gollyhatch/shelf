@@ -351,7 +351,7 @@ fn cover_pane_renders_image() {
         )),
     );
     let view = render(&mut app, 120, 30);
-    assert!(view.contains("Cover"), "{view}");
+    assert!(!view.contains("Cover"), "{view}");
     assert!(view.contains('▀'), "{view}");
 }
 
@@ -400,7 +400,6 @@ fn cover_pane_loads_cover_from_epub() {
     assert!(app.covers[&path].is_some());
 
     let view = render(&mut app, 120, 30);
-    assert!(view.contains("Cover"), "{view}");
     assert!(view.contains('▀'), "{view}");
 }
 
