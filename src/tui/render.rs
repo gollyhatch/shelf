@@ -268,38 +268,21 @@ impl App {
             return;
         }
         if self.width >= 84 {
-            let list_w = (self.width / 3) as u16;
+            let (list_w, detail_w, cover_w) =
+                wide_widths(area.width, self.cover_open);
             let list_rect = Rect::new(area.x, area.y, list_w, area.height);
-            let cover_w = if self.cover_open {
-                ((self.width / 4).clamp(20, 34) as u16).min(
-                    area.width.saturating_sub(list_w + 1 + 24 + 1),
-                )
-            } else {
-                0
-            };
-            if cover_w >= 12 {
-                let detail_w = area.width - list_w - cover_w - 2;
-                let detail_rect =
-                    Rect::new(area.x + list_w + 1, area.y, detail_w, area.height);
+            let detail_rect =
+                Rect::new(area.x + list_w + 1, area.y, detail_w, area.height);
+            self.draw_pane(frame, Pane::List, list_rect);
+            self.draw_pane(frame, Pane::Detail, detail_rect);
+            if cover_w > 0 {
                 let cover_rect = Rect::new(
                     detail_rect.x + detail_w + 1,
                     area.y,
                     cover_w,
                     area.height,
                 );
-                self.draw_pane(frame, Pane::List, list_rect);
-                self.draw_pane(frame, Pane::Detail, detail_rect);
                 self.draw_cover(frame, cover_rect);
-            } else {
-                let detail_w = area.width.saturating_sub(list_w + 1);
-                let detail_rect = Rect::new(
-                    area.x + list_w + 1,
-                    area.y,
-                    detail_w,
-                    area.height,
-                );
-                self.draw_pane(frame, Pane::List, list_rect);
-                self.draw_pane(frame, Pane::Detail, detail_rect);
             }
         } else {
             let (list_h, detail_h, cover_h, _) = self.pane_heights();
@@ -1661,6 +1644,23 @@ impl App {
     }
 }
 
+/// Column widths of the wide layout. Opening the cover pane takes ten columns
+/// from the library and gives the cover ten more.
+fn wide_widths(width: u16, cover_open: bool) -> (u16, u16, u16) {
+    let mut list = width / 3;
+    if cover_open {
+        let library = list.saturating_sub(10);
+        let cover = ((width / 4).clamp(20, 34) + 10)
+            .min(width.saturating_sub(library + 1 + 24 + 1));
+        if cover >= 12 {
+            let detail = width - library - cover - 2;
+            return (library, detail, cover);
+        }
+    }
+    list = list.min(width);
+    (list, width.saturating_sub(list + 1), 0)
+}
+
 /// Turn an image into half-block cells: the upper half is the foreground and
 /// the lower half the background, which gives two pixels per terminal row.
 fn cover_image_lines(
@@ -1974,6 +1974,21 @@ mod tests {
             .into_iter()
             .map(|row| row.chars.iter().collect())
             .collect()
+    }
+
+    #[test]
+    fn cover_pane_takes_ten_columns_from_the_library() {
+        let (list, detail, cover) = wide_widths(120, false);
+        assert_eq!((list, detail, cover), (40, 79, 0));
+
+        let (list, detail, cover) = wide_widths(120, true);
+        assert_eq!(list, 30);
+        assert_eq!(cover, 40);
+        assert_eq!(list + detail + cover + 2, 120);
+
+        let (list, detail, cover) = wide_widths(84, true);
+        assert_eq!((list, cover), (18, 31));
+        assert_eq!(list + detail + cover + 2, 84);
     }
 
     #[test]
