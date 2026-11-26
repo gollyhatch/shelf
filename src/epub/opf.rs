@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, bail};
 use quick_xml::Reader;
-use quick_xml::events::Event;
+use quick_xml::events::{BytesStart, Event};
 use quick_xml::events::attributes::Attribute;
 
 use super::escaping::escape_xml;
@@ -43,6 +43,24 @@ impl OpfChild {
     }
 }
 
+/// One manifest item, enough to locate a page-list, NCX, page-map or spine
+/// document.
+#[derive(Clone, Debug, Default)]
+pub struct ManifestItem {
+    pub id: String,
+    pub href: String,
+    pub media_type: String,
+    pub properties: String,
+}
+
+/// The spine and its `toc`/`page-map` references.
+#[derive(Clone, Debug, Default)]
+pub struct Spine {
+    pub toc: String,
+    pub page_map: String,
+    pub itemrefs: Vec<String>,
+}
+
 /// A parsed package document with the byte spans an edit needs.
 #[derive(Clone, Debug)]
 pub struct OpfDocument {
@@ -61,6 +79,8 @@ pub struct OpfDocument {
     pub meta_close_start: usize,
     pub meta_self_closing: bool,
     pub children: Vec<OpfChild>,
+    pub manifest: Vec<ManifestItem>,
+    pub spine: Spine,
 }
 
 fn local_of(raw: &str) -> &str {
@@ -90,6 +110,8 @@ pub fn parse_opf(name: &str, data: &[u8]) -> Result<OpfDocument> {
         meta_close_start: 0,
         meta_self_closing: false,
         children: Vec::new(),
+        manifest: Vec::new(),
+        spine: Spine::default(),
     };
 
     let mut reader = Reader::from_reader(data);
@@ -98,6 +120,8 @@ pub fn parse_opf(name: &str, data: &[u8]) -> Result<OpfDocument> {
 
     let mut depth = 0usize;
     let mut in_metadata = false;
+    let mut in_manifest = false;
+    let mut in_spine = false;
     let mut child: Option<OpfChild> = None;
     let mut saw_package = false;
 
@@ -130,6 +154,27 @@ pub fn parse_opf(name: &str, data: &[u8]) -> Result<OpfDocument> {
                 } else if in_metadata && depth == 2 {
                     child = Some(child_from_start(&local, off, &start)?);
                 }
+                if depth == 1 {
+                    if local == "manifest" {
+                        in_manifest = true;
+                    } else if local == "spine" {
+                        doc.spine.toc =
+                            attr_local(&start, "toc")?.unwrap_or_default();
+                        doc.spine.page_map =
+                            attr_local(&start, "page-map")?.unwrap_or_default();
+                        in_spine = true;
+                    }
+                } else if depth == 2 {
+                    if in_manifest && local == "item" {
+                        doc.manifest.push(manifest_item(&start)?);
+                    } else if in_spine
+                        && local == "itemref"
+                        && let Some(idref) = attr_local(&start, "idref")?
+                        && !idref.is_empty()
+                    {
+                        doc.spine.itemrefs.push(idref);
+                    }
+                }
                 depth += 1;
             }
             Event::Empty(start) => {
@@ -154,6 +199,22 @@ pub fn parse_opf(name: &str, data: &[u8]) -> Result<OpfDocument> {
                     c.end = after;
                     doc.children.push(c);
                 }
+                if depth == 1 && local == "spine" {
+                    doc.spine.toc =
+                        attr_local(&start, "toc")?.unwrap_or_default();
+                    doc.spine.page_map =
+                        attr_local(&start, "page-map")?.unwrap_or_default();
+                } else if depth == 2 {
+                    if in_manifest && local == "item" {
+                        doc.manifest.push(manifest_item(&start)?);
+                    } else if in_spine
+                        && local == "itemref"
+                        && let Some(idref) = attr_local(&start, "idref")?
+                        && !idref.is_empty()
+                    {
+                        doc.spine.itemrefs.push(idref);
+                    }
+                }
             }
             Event::End(_) => {
                 depth = depth.saturating_sub(1);
@@ -166,6 +227,10 @@ pub fn parse_opf(name: &str, data: &[u8]) -> Result<OpfDocument> {
                 {
                     c.end = after;
                     doc.children.push(c);
+                }
+                if depth == 1 {
+                    in_manifest = false;
+                    in_spine = false;
                 }
             }
             Event::Text(text) => {
@@ -309,6 +374,34 @@ fn read_attrs(
         }
     }
     Ok(())
+}
+
+fn manifest_item(start: &BytesStart<'_>) -> Result<ManifestItem> {
+    Ok(ManifestItem {
+        id: attr_local(start, "id")?.unwrap_or_default(),
+        href: attr_local(start, "href")?.unwrap_or_default(),
+        media_type: attr_local(start, "media-type")?.unwrap_or_default(),
+        properties: attr_local(start, "properties")?.unwrap_or_default(),
+    })
+}
+
+/// Read an attribute by local name, ignoring any namespace prefix.
+fn attr_local(
+    start: &BytesStart<'_>,
+    local: &str,
+) -> Result<Option<String>> {
+    for attr in start.attributes().with_checks(false) {
+        let attr = attr.context("invalid XML attribute")?;
+        let key = attr.key.as_ref();
+        let name = match key.rfind(':') {
+            Some(i) => &key[i + 1..],
+            None => key,
+        };
+        if name == local {
+            return Ok(Some(attr_value(&attr)?));
+        }
+    }
+    Ok(None)
 }
 
 /// Whether a raw start tag ends with `/>`.

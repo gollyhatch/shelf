@@ -1,6 +1,6 @@
 //! The browser's state and key/message handling.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -78,6 +78,8 @@ pub(crate) enum RowKind {
     Subject,
     AddCreator,
     AddSubject,
+    /// A read-only value, such as the page count.
+    Info,
 }
 
 /// One editable line in the detail pane.
@@ -160,6 +162,10 @@ pub(crate) enum Msg {
     ScanError(String),
     Loaded(Entry),
     LoadDone,
+    Pages {
+        path: PathBuf,
+        count: Option<epub::PageCount>,
+    },
     Saved {
         path: PathBuf,
         meta: Metadata,
@@ -204,6 +210,9 @@ pub(crate) struct App {
     pub list_idx: usize,
     pub rows: Vec<Row>,
     pub row_idx: usize,
+    pub pages: HashMap<PathBuf, Option<epub::PageCount>>,
+    pages_tx: Sender<PathBuf>,
+    pages_requested: Option<PathBuf>,
     pub pane: Pane,
     pub mode: Mode,
 
@@ -309,6 +318,17 @@ impl App {
         };
         let theme = load_theme(&theme_name)?;
         let (tx, rx) = channel();
+        let (pages_tx, pages_rx) = channel::<PathBuf>();
+        let pages_done = tx.clone();
+        thread::spawn(move || {
+            while let Ok(mut path) = pages_rx.recv() {
+                while let Ok(next) = pages_rx.try_recv() {
+                    path = next;
+                }
+                let count = epub::read_page_count(&path).ok().flatten();
+                let _ = pages_done.send(Msg::Pages { path, count });
+            }
+        });
         let client = online::Client::new(options.google_books_api_key.clone());
         let loaded_count = entries.as_ref().map_or(0, Vec::len);
         let library_path = options.library.clone();
@@ -321,6 +341,9 @@ impl App {
             list_idx: 0,
             rows: Vec::new(),
             row_idx: 0,
+            pages: HashMap::new(),
+            pages_tx,
+            pages_requested: None,
             pane: Pane::List,
             mode: Mode::Browse,
             edit_row: Row::default(),
@@ -807,7 +830,15 @@ impl App {
                 self.row_top = 0;
                 return;
             };
-            self.rows = build_rows(&entry.metadata);
+            let rows = {
+                let pages =
+                    self.pages.get(&entry.path).and_then(Option::as_ref);
+                build_rows(&entry.metadata, pages)
+            };
+            self.rows = rows;
+            if entry.error.is_none() {
+                self.request_pages(&entry.path);
+            }
         }
 
         if let Some(keep) = keep
@@ -822,6 +853,16 @@ impl App {
         }
         self.row_idx =
             clamp(self.row_idx, 0, self.rows.len().saturating_sub(1));
+    }
+
+    fn request_pages(&mut self, path: &Path) {
+        if self.pages.contains_key(path)
+            || self.pages_requested.as_deref() == Some(path)
+        {
+            return;
+        }
+        self.pages_requested = Some(path.to_path_buf());
+        let _ = self.pages_tx.send(path.to_path_buf());
     }
 
     fn move_list(&mut self, delta: isize) {
@@ -1113,6 +1154,9 @@ impl App {
         let Some(row) = self.current_row().cloned() else {
             return;
         };
+        if row.kind == RowKind::Info {
+            return;
+        }
         if row.field == Field::Read {
             if !add {
                 self.toggle_read();
@@ -1195,6 +1239,7 @@ impl App {
                     }
                     package.set_subjects(subjects)
                 }
+                RowKind::Info => Ok(()),
                 _ => package.set(row.field, &value),
             }
         });
@@ -1234,7 +1279,7 @@ impl App {
             return;
         };
         match row.kind {
-            RowKind::AddCreator | RowKind::AddSubject => {}
+            RowKind::AddCreator | RowKind::AddSubject | RowKind::Info => {}
             RowKind::Creator => {
                 self.save(entry.path, move |package| {
                     let mut creators = package.metadata().creators;
@@ -2524,6 +2569,15 @@ impl App {
                 self.load_total = self.entries.len();
                 self.load_index = self.entries.len();
             }
+            Msg::Pages { path, count } => {
+                self.pages.insert(path.clone(), count);
+                if self.pages_requested.as_deref() == Some(path.as_path()) {
+                    self.pages_requested = None;
+                }
+                if self.selected().is_some_and(|entry| entry.path == path) {
+                    self.rebuild_rows();
+                }
+            }
             Msg::Saved { path, meta, error } => {
                 if let Some(err) = error {
                     self.set_status(&err, StatusKind::Err);
@@ -2780,7 +2834,10 @@ pub(crate) fn compare_online_metadata(
 
 /// Build the detail pane rows: plain fields, one row per author and tag, each
 /// group followed by an "add" row.
-pub(crate) fn build_rows(meta: &Metadata) -> Vec<Row> {
+pub(crate) fn build_rows(
+    meta: &Metadata,
+    pages: Option<&epub::PageCount>,
+) -> Vec<Row> {
     let mut rows = vec![
         Row {
             kind: RowKind::Field,
@@ -2875,6 +2932,14 @@ pub(crate) fn build_rows(meta: &Metadata) -> Vec<Row> {
             field,
             label: field.label().into(),
             value: meta.get(field),
+            ..Row::default()
+        });
+    }
+    if let Some(pages) = pages {
+        rows.push(Row {
+            kind: RowKind::Info,
+            label: "Pages".into(),
+            value: pages.text(),
             ..Row::default()
         });
     }

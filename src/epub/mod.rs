@@ -13,6 +13,7 @@ mod meta_repair;
 mod metadata;
 mod namespace;
 mod opf;
+mod pages;
 mod repair;
 
 use std::collections::HashMap;
@@ -29,6 +30,7 @@ pub use metadata::{
     Creator, Field, Metadata, parse_creator, parse_creator_list,
     parse_read_status, split_list,
 };
+pub use pages::{PageCount, read_page_count};
 pub use repair::{is_ncx, is_opf, repair};
 
 use escaping::escape_xml;
@@ -57,14 +59,15 @@ pub(crate) const SERIES_COLLECTION_ID: &str = "shelf-series";
 /// Read the Dublin Core metadata of an EPUB without loading the rest of the
 /// publication.
 pub fn read_metadata(name: &Path) -> Result<Metadata> {
-    let doc = read_package_document(name)
+    let mut archive = open_archive(name)
+        .map_err(|err| anyhow!("{}: {err}", base_name(name)))?;
+    let doc = read_package_document(&mut archive)
         .map_err(|err| anyhow!("{}: {err}", base_name(name)))?;
     Ok(doc.metadata())
 }
 
-/// Open an EPUB and read only the entries needed to find and parse its
-/// package document.
-fn read_package_document(name: &Path) -> Result<OpfDocument> {
+/// Open an EPUB archive and verify its mimetype entry.
+fn open_archive(name: &Path) -> Result<ZipArchive<File>> {
     let file = File::open(name)?;
     let mut archive = ZipArchive::new(file)?;
 
@@ -72,9 +75,15 @@ fn read_package_document(name: &Path) -> Result<OpfDocument> {
     if String::from_utf8_lossy(&mimetype).trim() != MIMETYPE {
         bail!("mimetype mismatch");
     }
+    Ok(archive)
+}
 
+/// Read only the entries needed to find and parse the package document.
+fn read_package_document(
+    archive: &mut ZipArchive<File>,
+) -> Result<OpfDocument> {
     let container = read_archive_file(
-        &mut archive,
+        archive,
         "META-INF/container.xml",
         MAX_METADATA_ENTRY,
     )
@@ -86,8 +95,7 @@ fn read_package_document(name: &Path) -> Result<OpfDocument> {
     }
     let opf_name = clean_path(opf_name.trim().trim_start_matches('/'));
 
-    let opf_data =
-        read_archive_file(&mut archive, &opf_name, MAX_METADATA_ENTRY)?;
+    let opf_data = read_archive_file(archive, &opf_name, MAX_METADATA_ENTRY)?;
     let doc = parse_opf(&opf_name, &opf_data)
         .map_err(|err| anyhow!("{opf_name}: {err}"))?;
     Ok(doc)
@@ -233,7 +241,9 @@ where
     F: FnOnce(&mut Package) -> Result<()>,
 {
     fs::metadata(name)?;
-    let doc = read_package_document(name)
+    let mut archive = open_archive(name)
+        .map_err(|err| anyhow!("{}: {err}", base_name(name)))?;
+    let doc = read_package_document(&mut archive)
         .map_err(|err| anyhow!("{}: {err}", base_name(name)))?;
     let meta = doc.metadata();
     let mut package = Package {

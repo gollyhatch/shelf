@@ -164,6 +164,31 @@ fn view_shows_metadata() {
 }
 
 #[test]
+fn pages_row_is_read_only() {
+    let (dir, path) = crate::epub::test_support::make_epub();
+    let mut app = App::new(
+        dir.path().to_path_buf(),
+        Some(vec![library::load_one(&path)]),
+        options(),
+    )
+    .unwrap();
+    wait_until(&mut app, |app| {
+        app.rows.iter().any(|row| row.label == "Pages")
+    });
+    let i = app
+        .rows
+        .iter()
+        .position(|row| row.label == "Pages")
+        .unwrap();
+    assert_eq!(app.rows[i].value, "1 (est.)");
+
+    app.pane = Pane::Detail;
+    app.row_idx = i;
+    app.handle_key(key(KeyCode::Enter));
+    assert_eq!(app.mode, Mode::Browse);
+}
+
+#[test]
 fn view_fits_small_terminals() {
     for width in [16u16, 24, 40, 60, 83, 84, 100, 160] {
         for height in [4u16, 6, 8, 12, 20, 40] {

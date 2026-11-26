@@ -630,14 +630,16 @@ impl App {
                 }
                 return vec![Line::from(Span::styled(plain, self.styles.add))];
             }
-            RowKind::Field => {}
+            RowKind::Field | RowKind::Info => {}
         }
 
         let label = format!("{}:", row.label);
-        if matches!(
-            row.field,
-            crate::epub::Field::Title | crate::epub::Field::Description
-        ) && !row.value.is_empty()
+        if row.kind == RowKind::Field
+            && matches!(
+                row.field,
+                crate::epub::Field::Title | crate::epub::Field::Description
+            )
+            && !row.value.is_empty()
         {
             return self.render_wrapped_field(
                 &label, &row.value, width, label_w, selected,

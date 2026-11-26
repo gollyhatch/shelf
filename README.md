@@ -167,6 +167,11 @@ author, e.g. `(Dune #1)` or `A Novel (Dune #1)`. Press `tab` to switch panes,
 `/` to filter the list, and `ctrl+d` / `ctrl+u` to page through a pane. Long
 descriptions wrap across multiple lines in the metadata pane.
 
+When a book supplies a page count (an EPUB 3 page-list, an NCX page list, an
+Adobe page-map, or `dc:extent`), the detail pane ends with a read-only
+`Pages:` row. Books without one show an estimate at 300 words per page, marked
+`(est.)`.
+
 Search terms can be combined and all of them must match. Each term is either an
 unprefixed word searched across the title, authors, series, tags, description
 and file name, or a field prefix such as `title:dune`, `author:herbert` or
