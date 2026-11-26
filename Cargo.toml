@@ -13,6 +13,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 clap_mangen = "0.2"
+copypasta = { version = "0.10", default-features = false, features = ["x11"] }
 crossterm = "0.29"
 html-escape = "0.2"
 opaline = "0.4.2"

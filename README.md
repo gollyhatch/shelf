@@ -132,8 +132,8 @@ requests.
 
 `copy_format` sets the text that `y` copies from the TUI. It uses the same
 `%t`, `%a`, `%s` and long-name placeholders as `rename_format`; the default is
-`"%a: %t"`. Copying uses `wl-copy`, `xclip` or `xsel` on Linux (`pbcopy` on
-macOS, `clip` on Windows); when none is available the status line reports it.
+`"%a: %t"`. Copying goes through the system clipboard; on Linux this uses X11,
+so Wayland sessions need XWayland.
 
 `slugify = true` makes slugified names the default for `shelf rename`.
 `--no-slugify` (or the `--no-sluggify` alias) disables it for one run, and

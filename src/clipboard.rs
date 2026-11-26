@@ -1,81 +1,27 @@
 //! Writing text to the system clipboard.
-//!
-//! Desktop clipboard ownership is tied to a running process, so shelf hands
-//! the text to the platform's clipboard tool instead of holding it itself.
 
-use std::io::{ErrorKind, Write};
-use std::process::{Command, Stdio};
+use std::sync::Mutex;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
+use copypasta::{ClipboardContext, ClipboardProvider};
 
-/// Copy `text` with the first available platform tool.
+/// X11 keeps the selection in the process that set it, so the context lives
+/// for the whole run instead of being dropped after each copy.
+static CLIPBOARD: Mutex<Option<ClipboardContext>> = Mutex::new(None);
+
+/// Copy `text` to the system clipboard.
 pub fn write(text: &str) -> Result<()> {
-    let candidates: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
-        &[("pbcopy", &[])]
-    } else if cfg!(target_os = "windows") {
-        &[("clip", &[])]
-    } else {
-        &[
-            ("wl-copy", &[]),
-            ("xclip", &["-selection", "clipboard"]),
-            ("xsel", &["--clipboard", "--input"]),
-        ]
-    };
-
-    let mut failure = None;
-    for (program, args) in candidates {
-        match run(program, args, text) {
-            Ok(()) => return Ok(()),
-            Err(Failure::Missing) => {}
-            Err(Failure::Failed(err)) => failure = Some(err),
-        }
+    let mut clipboard =
+        CLIPBOARD.lock().unwrap_or_else(|err| err.into_inner());
+    if clipboard.is_none() {
+        *clipboard = Some(
+            ClipboardContext::new()
+                .map_err(|err| anyhow!("clipboard: {err}"))?,
+        );
     }
-    match failure {
-        Some(err) => Err(err),
-        None => bail!(
-            "no clipboard tool found (install wl-clipboard, xclip or xsel)"
-        ),
-    }
-}
-
-enum Failure {
-    /// The tool is not installed; try the next candidate.
-    Missing,
-    Failed(anyhow::Error),
-}
-
-fn run(
-    program: &str,
-    args: &[&str],
-    text: &str,
-) -> std::result::Result<(), Failure> {
-    let mut child = Command::new(program)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|err| {
-            if err.kind() == ErrorKind::NotFound {
-                Failure::Missing
-            } else {
-                Failure::Failed(anyhow!("{program}: {err}"))
-            }
-        })?;
-
-    if let Some(mut stdin) = child.stdin.take()
-        && let Err(err) = stdin.write_all(text.as_bytes())
-    {
-        let _ = child.wait();
-        return Err(Failure::Failed(anyhow!("{program}: {err}")));
-    }
-
-    let status = child
-        .wait()
-        .map_err(|err| Failure::Failed(anyhow!("{program}: {err}")))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(Failure::Failed(anyhow!("{program}: {status}")))
-    }
+    clipboard
+        .as_mut()
+        .expect("clipboard initialized")
+        .set_contents(text.to_owned())
+        .map_err(|err| anyhow!("clipboard: {err}"))
 }
