@@ -323,9 +323,20 @@ impl App {
         let (tx, rx) = channel();
         let (pages_tx, pages_rx) = channel::<PathBuf>();
         let pages_done = tx.clone();
+        let write_page_estimates = options.write_page_estimates;
         thread::spawn(move || {
             while let Ok(path) = pages_rx.recv() {
-                let count = epub::read_page_count(&path).ok().flatten();
+                let mut count = epub::read_page_count(&path).ok().flatten();
+                if write_page_estimates
+                    && let Some(pages) = count
+                    && pages.estimated
+                    && epub::write_page_estimate(&path, pages.pages).is_ok()
+                {
+                    count = Some(epub::PageCount {
+                        pages: pages.pages,
+                        estimated: false,
+                    });
+                }
                 let _ = pages_done.send(Msg::Pages { path, count });
             }
         });

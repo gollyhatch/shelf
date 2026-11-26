@@ -40,6 +40,7 @@ fn options() -> RunOptions {
         google_books_api_key: String::new(),
         library: String::new(),
         sort: String::new(),
+        write_page_estimates: false,
         browser: String::new(),
         search_url: String::new(),
         rename: NameRule::new("", false),
@@ -182,6 +183,7 @@ fn pages_row_is_read_only() {
         .position(|row| row.label == "Pages")
         .unwrap();
     assert_eq!(app.rows[i].value, "1 (est.)");
+    assert_eq!(epub::read_metadata(&path).unwrap().extent, "");
 
     app.pane = Pane::Detail;
     app.row_idx = i;
@@ -250,6 +252,37 @@ fn pages_sort_orders_by_count() {
     }];
     app.apply_filter();
     assert_eq!(titles(&app), ["Big", "Middle", "Small"]);
+}
+
+#[test]
+fn page_estimate_written_when_enabled() {
+    let (dir, path) = crate::epub::test_support::make_epub();
+    let mut opts = options();
+    opts.write_page_estimates = true;
+    let mut app = App::new(
+        dir.path().to_path_buf(),
+        Some(vec![library::load_one(&path)]),
+        opts,
+    )
+    .unwrap();
+    wait_until(&mut app, |app| {
+        app.rows.iter().any(|row| row.label == "Pages")
+    });
+    let row = app
+        .rows
+        .iter()
+        .find(|row| row.label == "Pages")
+        .unwrap();
+    assert_eq!(row.value, "1");
+
+    assert_eq!(epub::read_metadata(&path).unwrap().extent, "1 pages");
+    assert_eq!(
+        epub::read_page_count(&path).unwrap(),
+        Some(epub::PageCount {
+            pages: 1,
+            estimated: false
+        })
+    );
 }
 
 #[test]

@@ -513,6 +513,7 @@ impl OpfDocument {
                 by_local.get("subject").cloned().unwrap_or_default(),
             ),
             description: first("description"),
+            extent: first("extent"),
             publisher: first("publisher"),
             date: first("date"),
             language: first("language"),
@@ -906,6 +907,7 @@ pub fn edit_opf(
         }
     };
     set_optional("description", &old.description, &new.description);
+    set_optional("extent", &old.extent, &new.extent);
     set_optional("publisher", &old.publisher, &new.publisher);
     set_optional("rights", &old.rights, &new.rights);
     set_optional("date", &old.date, &new.date);

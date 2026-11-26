@@ -307,6 +307,7 @@ fn run_options(cfg: &Config) -> tui::RunOptions {
         google_books_api_key: cfg.google_books_api_key.clone(),
         library: cfg.library.clone(),
         sort: cfg.sort.clone(),
+        write_page_estimates: cfg.write_page_estimates,
         browser: cfg.browser.clone(),
         search_url: cfg.search_url.clone(),
         rename: NameRule::new(cfg.rename_format.clone(), slugify),

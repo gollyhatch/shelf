@@ -22,6 +22,8 @@ pub struct Config {
     pub viewer: String,
     /// Default Books pane ordering, e.g. "title" or "date:desc".
     pub sort: String,
+    /// Write an estimated page count back into the EPUB as `dc:extent`.
+    pub write_page_estimates: bool,
     /// Command used to open a URL. When set, it replaces `xdg-open`; the URL
     /// is appended as the final argument.
     pub browser: String,
@@ -150,6 +152,15 @@ mod tests {
         assert_eq!(cfg.viewer, "zathura");
         assert_eq!(cfg.browser, "firefox --new-window");
         assert!(cfg.slugify_rename());
+    }
+
+    #[test]
+    fn page_estimates_are_off_by_default() {
+        assert!(!Config::default().write_page_estimates);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "write_page_estimates = true\n").unwrap();
+        assert!(load_file(&path).unwrap().write_page_estimates);
     }
 
     #[test]

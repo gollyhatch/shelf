@@ -115,6 +115,11 @@ Separate several keys with commas for a composite order, for example
 key can have its own direction: `sort = "author:asc,series:desc"`. Ascending is
 the fallback when no direction is given.
 
+`write_page_estimates = true` writes an estimated page count back into the
+EPUB as `dc:extent` when a book has no publisher page count. It is off by
+default; enabling it turns estimates into exact counts for later runs. Counts
+computed in the background, including by a pages sort, are written too.
+
 `google_books_api_key` is optional. The online lookup uses it for Google Books
 requests and raises the quota substantially. Unauthenticated requests can
 return `429 Too Many Requests`; create a key in Google Cloud with the Books API
@@ -172,7 +177,9 @@ descriptions wrap across multiple lines in the metadata pane.
 When a book supplies a page count (an EPUB 3 page-list, an NCX page list, an
 Adobe page-map, or `dc:extent`), the detail pane ends with a read-only
 `Pages:` row. Books without one show an estimate at 300 words per page, marked
-`(est.)`. Page count is also available as a sort key.
+`(est.)`. Page count is also available as a sort key. With
+`write_page_estimates = true`, an estimate is saved to the EPUB as `dc:extent`
+and shown without the `(est.)` mark on later runs.
 
 Search terms can be combined and all of them must match. Each term is either an
 unprefixed word searched across the title, authors, series, tags, description

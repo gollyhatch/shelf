@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 
 use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
@@ -30,7 +30,7 @@ pub use metadata::{
     Creator, Field, Metadata, parse_creator, parse_creator_list,
     parse_read_status, split_list,
 };
-pub use pages::{PageCount, read_page_count};
+pub use pages::{PageCount, read_page_count, write_page_estimate};
 pub use repair::{is_ncx, is_opf, repair};
 
 use escaping::escape_xml;
@@ -231,6 +231,15 @@ impl Package {
         self.dirty = true;
         Ok(())
     }
+
+    /// Store a page count as the Dublin Core `extent`, e.g. "384 pages".
+    pub fn set_page_count(&mut self, pages: u32) {
+        let extent = format!("{pages} pages");
+        if self.meta.extent != extent {
+            self.meta.extent = extent;
+            self.dirty = true;
+        }
+    }
 }
 
 /// Read an EPUB, apply `f` to its metadata and write the result back
@@ -240,6 +249,11 @@ pub fn update<F>(name: &Path, f: F) -> Result<()>
 where
     F: FnOnce(&mut Package) -> Result<()>,
 {
+    // Metadata saves and page-count backfills read, edit and rewrite the same
+    // package document; serialize them so one cannot overwrite the other.
+    static UPDATE_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = UPDATE_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+
     fs::metadata(name)?;
     let mut archive = open_archive(name)
         .map_err(|err| anyhow!("{}: {err}", base_name(name)))?;

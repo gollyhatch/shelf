@@ -28,6 +28,8 @@ pub struct Metadata {
     pub creators: Vec<Creator>,
     pub subjects: Vec<String>,
     pub description: String,
+    /// Dublin Core extent, e.g. "384 pages".
+    pub extent: String,
     pub publisher: String,
     pub date: String,
     pub language: String,

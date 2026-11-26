@@ -32,6 +32,8 @@ pub struct RunOptions {
     pub google_books_api_key: String,
     pub library: String,
     pub sort: String,
+    /// Write an estimated page count back into the EPUB as `dc:extent`.
+    pub write_page_estimates: bool,
     /// Browser command for URLs; empty falls back to `xdg-open`.
     pub browser: String,
     pub search_url: String,

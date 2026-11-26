@@ -64,6 +64,15 @@ pub fn read_page_count(name: &Path) -> Result<Option<PageCount>> {
     Ok(estimate(&mut archive, opf_dir, &doc))
 }
 
+/// Store an estimated count as the package's Dublin Core `extent`, so later
+/// reads treat it as a publisher count.
+pub fn write_page_estimate(name: &Path, pages: u32) -> Result<()> {
+    super::update(name, |package| {
+        package.set_page_count(pages);
+        Ok(())
+    })
+}
+
 /// Build an exact count, rejecting zero.
 fn exact(pages: usize) -> Option<PageCount> {
     if pages == 0 {
@@ -454,7 +463,9 @@ fn percent_decode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::epub::test_support::{FIXTURE_CONTAINER, write_entries};
+    use crate::epub::test_support::{
+        FIXTURE_CONTAINER, write_entries, zip_entry,
+    };
 
     fn opf(metadata: &str, manifest: &str, spine_attrs: &str, spine: &str) -> String {
         format!(
@@ -635,6 +646,43 @@ mod tests {
                 estimated: true
             })
         );
+    }
+
+    #[test]
+    fn writes_estimate_as_extent() {
+        let chapter = format!(
+            r#"<html><body><p>{}</p></body></html>"#,
+            "word ".repeat(600)
+        );
+        let opf = opf(
+            "",
+            r#"<item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>"#,
+            "",
+            r#"<itemref idref="chapter"/>"#,
+        );
+        let (_dir, path) = write_entries(&[
+            ("META-INF/container.xml", FIXTURE_CONTAINER),
+            ("OEBPS/content.opf", &opf),
+            ("OEBPS/chapter.xhtml", &chapter),
+        ]);
+        assert_eq!(
+            read_page_count(&path).unwrap(),
+            Some(PageCount {
+                pages: 2,
+                estimated: true
+            })
+        );
+
+        write_page_estimate(&path, 2).unwrap();
+        assert_eq!(
+            read_page_count(&path).unwrap(),
+            Some(PageCount {
+                pages: 2,
+                estimated: false
+            })
+        );
+        let saved = String::from_utf8(zip_entry(&path, ".opf")).unwrap();
+        assert!(saved.contains("<dc:extent>2 pages</dc:extent>"), "{saved}");
     }
 
     #[test]
