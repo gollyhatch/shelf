@@ -138,8 +138,10 @@ so Wayland sessions need XWayland.
 
 `cover_pane = true` starts the TUI with the cover pane open. It is off by
 default; press `C` to toggle it at any time, or `c` to open the cover maximized
-over the body. The cover is read from the EPUB and drawn with half-block
-characters, so no terminal image protocol is required.
+over the body. The cover is read from the EPUB and rendered through
+`ratatui-image`, using Kitty graphics when the terminal or tmux's outer terminal
+is Kitty, Sixel or iTerm2 when reported, and half-block characters otherwise.
+Inside tmux, Kitty passthrough is enabled automatically.
 
 `slugify = true` makes slugified names the default for `shelf rename`.
 `--no-slugify` (or the `--no-sluggify` alias) disables it for one run, and

@@ -8,7 +8,7 @@ use std::thread;
 
 use anyhow::{Result, anyhow, bail};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use image::RgbaImage;
+use ratatui_image::protocol::StatefulProtocol;
 
 use super::RunOptions;
 use super::editor::{Input, TextArea};
@@ -175,7 +175,7 @@ pub(crate) enum Msg {
     },
     Cover {
         path: PathBuf,
-        image: Option<RgbaImage>,
+        image: Option<StatefulProtocol>,
     },
     Saved {
         path: PathBuf,
@@ -227,7 +227,7 @@ pub(crate) struct App {
     pages_dirty: bool,
     pub cover_open: bool,
     pub cover_full: bool,
-    pub covers: HashMap<PathBuf, Option<RgbaImage>>,
+    pub covers: HashMap<PathBuf, Option<StatefulProtocol>>,
     cover_tx: Sender<PathBuf>,
     cover_pending: HashSet<PathBuf>,
     pub pane: Pane,
@@ -357,9 +357,14 @@ impl App {
         });
         let (cover_tx, cover_rx) = channel::<PathBuf>();
         let covers_done = tx.clone();
+        let picker = options.picker.clone();
         thread::spawn(move || {
             while let Ok(path) = cover_rx.recv() {
-                let image = epub::read_cover(&path).ok().flatten();
+                let image = epub::read_cover(&path)
+                    .ok()
+                    .flatten()
+                    .map(image::DynamicImage::ImageRgba8)
+                    .map(|image| picker.new_resize_protocol(image));
                 let _ = covers_done.send(Msg::Cover { path, image });
             }
         });

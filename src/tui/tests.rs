@@ -43,6 +43,7 @@ fn options() -> RunOptions {
         write_page_estimates: false,
         copy_format: "%a: %t".into(),
         cover_pane: false,
+        picker: ratatui_image::picker::Picker::halfblocks(),
         browser: String::new(),
         search_url: String::new(),
         rename: NameRule::new("", false),
@@ -108,6 +109,14 @@ fn entries() -> Vec<Entry> {
             false,
         ),
     ]
+}
+
+fn cover_protocol(
+    color: [u8; 4],
+) -> ratatui_image::protocol::StatefulProtocol {
+    let image = image::RgbaImage::from_pixel(4, 6, image::Rgba(color));
+    ratatui_image::picker::Picker::halfblocks()
+        .new_resize_protocol(image::DynamicImage::ImageRgba8(image))
 }
 
 fn app_with(entries: Vec<Entry>, options: RunOptions) -> App {
@@ -342,14 +351,7 @@ fn cover_pane_renders_image() {
     opts.cover_pane = true;
     let mut app = app_with(entries(), opts);
     let path = app.selected().unwrap().path;
-    app.covers.insert(
-        path,
-        Some(image::RgbaImage::from_pixel(
-            4,
-            4,
-            image::Rgba([10, 20, 30, 255]),
-        )),
-    );
+    app.covers.insert(path, Some(cover_protocol([10, 20, 30, 255])));
     let view = render(&mut app, 120, 30);
     assert!(!view.contains("Cover"), "{view}");
     assert!(view.contains('▀'), "{view}");
@@ -407,14 +409,7 @@ fn cover_pane_loads_cover_from_epub() {
 fn c_opens_maximized_cover() {
     let mut app = app_with(entries(), options());
     let path = app.selected().unwrap().path;
-    app.covers.insert(
-        path,
-        Some(image::RgbaImage::from_pixel(
-            4,
-            6,
-            image::Rgba([30, 60, 90, 255]),
-        )),
-    );
+    app.covers.insert(path, Some(cover_protocol([30, 60, 90, 255])));
     app.handle_key(ch('c'));
     assert!(app.cover_full);
 

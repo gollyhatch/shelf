@@ -17,6 +17,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::DefaultTerminal;
+use ratatui_image::picker::Picker;
 
 use crate::library;
 use crate::rename::NameRule;
@@ -38,6 +39,8 @@ pub struct RunOptions {
     pub copy_format: String,
     /// Show the cover pane when the TUI starts.
     pub cover_pane: bool,
+    /// Terminal image protocol and font size used for covers.
+    pub picker: Picker,
     /// Browser command for URLs; empty falls back to `xdg-open`.
     pub browser: String,
     pub search_url: String,

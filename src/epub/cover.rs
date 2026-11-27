@@ -45,8 +45,8 @@ pub fn read_cover(name: &Path) -> Result<Option<RgbaImage>> {
 /// Keep the cached image small enough that redrawing a pane does not rescale a
 /// full-resolution cover on every frame.
 fn thumbnail(image: RgbaImage) -> RgbaImage {
-    const MAX_W: u32 = 192;
-    const MAX_H: u32 = 256;
+    const MAX_W: u32 = 1024;
+    const MAX_H: u32 = 1536;
     if image.width() <= MAX_W && image.height() <= MAX_H {
         return image;
     }

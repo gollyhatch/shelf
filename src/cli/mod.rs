@@ -299,8 +299,54 @@ fn execute(cli: Cli) -> Result<i32> {
     }
 }
 
+fn image_picker() -> ratatui_image::picker::Picker {
+    use ratatui_image::picker::{Picker, ProtocolType};
+
+    let mut picker =
+        Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+    if kitty_terminal() {
+        // Kitty's query can be lost through tmux passthrough even though the
+        // outer terminal draws the graphics just fine.
+        allow_tmux_passthrough();
+        picker.set_protocol_type(ProtocolType::Kitty);
+    } else if picker.protocol_type() == ProtocolType::Iterm2
+        && !reliable_iterm2()
+    {
+        // The crate also treats several terminals as iTerm2-compatible from
+        // env vars alone (VS Code, Hyper, …), where half-blocks are the only
+        // thing that actually renders.
+        picker.set_protocol_type(ProtocolType::Halfblocks);
+    }
+    picker
+}
+
+fn kitty_terminal() -> bool {
+    std::env::var_os("KITTY_WINDOW_ID").is_some()
+        || std::env::var("TERM").is_ok_and(|term| term.contains("kitty"))
+}
+
+fn allow_tmux_passthrough() {
+    if std::env::var_os("TMUX").is_none() {
+        return;
+    }
+    let _ = std::process::Command::new("tmux")
+        .args(["set", "-p", "allow-passthrough", "on"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+fn reliable_iterm2() -> bool {
+    let term = std::env::var("TERM_PROGRAM").unwrap_or_default();
+    let lc_term = std::env::var("LC_TERMINAL").unwrap_or_default();
+    term.contains("iTerm")
+        || term.contains("WezTerm")
+        || lc_term.contains("iTerm")
+}
+
 fn run_options(cfg: &Config) -> tui::RunOptions {
     let slugify = cfg.slugify_rename();
+    let picker = image_picker();
     tui::RunOptions {
         theme: cfg.theme.clone(),
         viewer: cfg.viewer.clone(),
@@ -310,6 +356,7 @@ fn run_options(cfg: &Config) -> tui::RunOptions {
         write_page_estimates: cfg.write_page_estimates,
         copy_format: cfg.clipboard_format().to_owned(),
         cover_pane: cfg.cover_pane,
+        picker,
         browser: cfg.browser.clone(),
         search_url: cfg.search_url.clone(),
         rename: NameRule::new(cfg.rename_format.clone(), slugify),
