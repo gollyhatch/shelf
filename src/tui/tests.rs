@@ -409,7 +409,8 @@ fn cover_pane_loads_cover_from_epub() {
 fn c_opens_maximized_cover() {
     let mut app = app_with(entries(), options());
     let path = app.selected().unwrap().path;
-    app.covers.insert(path, Some(cover_protocol([30, 60, 90, 255])));
+    app.cover_full_cover =
+        Some((path, Some(cover_protocol([30, 60, 90, 255]))));
     app.handle_key(ch('c'));
     assert!(app.cover_full);
 

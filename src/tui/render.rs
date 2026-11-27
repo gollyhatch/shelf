@@ -431,22 +431,29 @@ impl App {
         }
         let selected = self.selected();
         let base = self.styles.base;
-        if let Some(entry) = &selected
-            && entry.error.is_none()
-            && let Some(Some(protocol)) = self.covers.get_mut(&entry.path)
+        let path = selected.as_ref().map(|entry| entry.path.clone());
+        if let Some(path) = &path
+            && let Some((cached, Some(protocol))) =
+                self.cover_full_cover.as_mut()
+            && cached == path
         {
             render_cover(frame, area, protocol, base);
             return;
         }
 
-        let message = match &selected {
-            None => "no cover",
-            Some(entry) if entry.error.is_some() => "no cover",
-            Some(entry) => match self.covers.get(&entry.path) {
-                None => "loading…",
-                Some(None) => "no cover",
-                Some(Some(_)) => "no cover",
-            },
+        let message = if selected.as_ref().is_none_or(|entry| {
+            entry.error.is_some()
+        }) {
+            "no cover"
+        } else if let Some(path) = &path
+            && self
+                .cover_full_cover
+                .as_ref()
+                .is_some_and(|(cached, image)| cached == path && image.is_none())
+        {
+            "no cover"
+        } else {
+            "loading…"
         };
         let content_w =
             (UnicodeWidthStr::width(message) as u16).min(area.width);

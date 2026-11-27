@@ -176,6 +176,7 @@ pub(crate) enum Msg {
     Cover {
         path: PathBuf,
         image: Option<StatefulProtocol>,
+        full: bool,
     },
     Saved {
         path: PathBuf,
@@ -228,8 +229,10 @@ pub(crate) struct App {
     pub cover_open: bool,
     pub cover_full: bool,
     pub covers: HashMap<PathBuf, Option<StatefulProtocol>>,
-    cover_tx: Sender<PathBuf>,
+    pub cover_full_cover: Option<(PathBuf, Option<StatefulProtocol>)>,
+    cover_tx: Sender<(PathBuf, bool)>,
     cover_pending: HashSet<PathBuf>,
+    cover_full_pending: Option<PathBuf>,
     pub pane: Pane,
     pub mode: Mode,
 
@@ -355,17 +358,17 @@ impl App {
                 let _ = pages_done.send(Msg::Pages { path, count });
             }
         });
-        let (cover_tx, cover_rx) = channel::<PathBuf>();
+        let (cover_tx, cover_rx) = channel::<(PathBuf, bool)>();
         let covers_done = tx.clone();
         let picker = options.picker.clone();
         thread::spawn(move || {
-            while let Ok(path) = cover_rx.recv() {
+            while let Ok((path, full)) = cover_rx.recv() {
                 let image = epub::read_cover(&path)
                     .ok()
                     .flatten()
                     .map(image::DynamicImage::ImageRgba8)
                     .map(|image| picker.new_resize_protocol(image));
-                let _ = covers_done.send(Msg::Cover { path, image });
+                let _ = covers_done.send(Msg::Cover { path, image, full });
             }
         });
         let client = online::Client::new(options.google_books_api_key.clone());
@@ -388,8 +391,10 @@ impl App {
             cover_open,
             cover_full: false,
             covers: HashMap::new(),
+            cover_full_cover: None,
             cover_tx,
             cover_pending: HashSet::new(),
+            cover_full_pending: None,
             pane: Pane::List,
             mode: Mode::Browse,
             edit_row: Row::default(),
@@ -937,7 +942,20 @@ impl App {
         {
             return;
         }
-        let _ = self.cover_tx.send(path.to_path_buf());
+        let _ = self.cover_tx.send((path.to_path_buf(), false));
+    }
+
+    fn request_cover_full(&mut self, path: &Path) {
+        if self
+            .cover_full_cover
+            .as_ref()
+            .is_some_and(|(cached, _)| cached == path)
+            || self.cover_full_pending.as_deref() == Some(path)
+        {
+            return;
+        }
+        self.cover_full_pending = Some(path.to_path_buf());
+        let _ = self.cover_tx.send((path.to_path_buf(), true));
     }
 
     /// A pages sort needs every book's count, not just the selected one.
@@ -1447,10 +1465,10 @@ impl App {
         let Some(entry) = self.selected() else {
             return;
         };
-        if entry.error.is_none() {
-            self.request_cover(&entry.path);
-        }
         self.cover_full = true;
+        if entry.error.is_none() {
+            self.request_cover_full(&entry.path);
+        }
     }
 
     fn toggle_cover(&mut self) {
@@ -2736,9 +2754,23 @@ impl App {
                 self.load_total = self.entries.len();
                 self.load_index = self.entries.len();
             }
-            Msg::Cover { path, image } => {
-                self.covers.insert(path.clone(), image);
-                self.cover_pending.remove(&path);
+            Msg::Cover { path, image, full } => {
+                if full {
+                    if self.cover_full_pending.as_deref() == Some(path.as_path())
+                    {
+                        self.cover_full_pending = None;
+                    }
+                    if self.cover_full
+                        && self
+                            .selected()
+                            .is_some_and(|entry| entry.path == path)
+                    {
+                        self.cover_full_cover = Some((path, image));
+                    }
+                } else {
+                    self.covers.insert(path.clone(), image);
+                    self.cover_pending.remove(&path);
+                }
             }
             Msg::Pages { path, count } => {
                 self.pages.insert(path.clone(), count);
