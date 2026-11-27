@@ -37,6 +37,10 @@ the shelf behind it before `enter` applies one:
 
 ![the theme selector listing every opaline built-in theme](screenshots/themes-gruvbox-dark.png)
 
+Show the selected book's cover beside the metadata with `C`:
+
+![shelf showing a book cover in the third pane](screenshots/cover-ayu-dark.png)
+
 ## Install
 
 ```sh
